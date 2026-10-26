@@ -64,6 +64,21 @@ video{width:100%;border-radius:16px;background:#000;max-height:70vh}
 .ask{display:flex;gap:10px;margin-top:12px}.ask textarea{height:52px;resize:vertical}
 .err{background:#2a1212;border:1px solid #5a2222;color:#ffb3b3;border-radius:12px;padding:10px 14px;margin:10px 0}
 .empty{color:var(--mut);text-align:center;padding:40px}
+.tabs{display:flex;gap:6px;margin-bottom:14px}.tab{padding:8px 16px;border-radius:12px;cursor:pointer;color:var(--mut);border:1px solid transparent}
+.tab.on{color:var(--gold2);border-color:var(--gold);background:#2a2110}
+.sent{padding:10px 0;border-bottom:1px solid #1d1a15;display:flex;gap:10px;align-items:flex-start}
+.sent .tm{color:var(--mut);font-size:12px;direction:ltr;min-width:42px;cursor:pointer}
+.sent .ws{flex:1;line-height:2}.w{cursor:pointer;border-radius:6px;padding:1px 3px}.w:hover{background:#2a2110}
+.w.hot{color:#111;background:var(--gold)}
+.mini{background:none;border:1px solid var(--line);border-radius:9px;color:var(--mut);padding:3px 9px;cursor:pointer;font-size:12px}
+.mini:hover{color:var(--bad);border-color:var(--bad)}
+.el{display:grid;grid-template-columns:90px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #1d1a15}
+.el .k{font-size:12px;color:var(--gold)}.el .k small{display:block;color:var(--mut);direction:ltr;text-align:right}
+.el input{padding:7px 10px!important;font-size:14px;margin:2px 0}
+.nt{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #1d1a15}.nt.done{opacity:.5}
+.nt .tm{direction:ltr;color:var(--gold);cursor:pointer;min-width:42px}.nt .tx{flex:1}
+.dirty{background:#2a2110;border:1px solid var(--gold);border-radius:14px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+.hint{color:var(--mut);font-size:13px;margin:0 0 10px}
 .pop{position:fixed;inset:0;background:#000c;display:grid;place-items:center;z-index:9;padding:16px;animation:f .3s}
 @keyframes f{from{opacity:0}}
 .pop .in{background:linear-gradient(160deg,#1a1408,#0b0a09);border:1px solid var(--gold);border-radius:26px;max-width:440px;padding:30px 26px;text-align:center;position:relative}
@@ -206,6 +221,9 @@ async function progress(P) {
       </div>
       <div>
         <div class="box" id="result" hidden></div>
+        <div class="box" id="studio" hidden><h2>الاستوديو</h2><div id="dbar"></div>
+          <div class="tabs"><span class="tab on" data-t="text">النص</span><span class="tab" data-t="els">العناصر</span><span class="tab" data-t="notes">الملاحظات</span></div>
+          <div id="pane"></div></div>
         <div class="box"><h2>سجل العمل</h2><div class="log" id="log"></div>
           <div class="ask"><textarea id="ask" placeholder="اطلب تعديل… مثال: كبّر الكابشن شوي، واحذف أول ٣ ثواني"></textarea>
           <button class="btn" id="send">نفّذ</button></div></div>
@@ -227,7 +245,7 @@ async function progress(P) {
     const act = $('#actions');
     const key = st.state + p.running;
     if (key !== lastKey) {
-      lastKey = key;
+      lastKey = key; if (!p.running) loadDoc();
       act.innerHTML = '';
       const b = (t, f, g) => { const e = document.createElement('button'); e.className = 'btn' + (g ? ' ghost' : ''); e.textContent = t; e.onclick = f; act.append(e); };
       if (!p.running && st.state === 'error') b('أعد المحاولة من هنا', () => post(`/api/projects/${N}/start`, {from: st.stage === 'upload' ? 'transcribe' : st.stage}).then(tick).catch(e => alert(e.message)));
@@ -243,7 +261,7 @@ async function progress(P) {
       const main = p.outputs.find(o => o.includes('تيك')) || p.outputs[0];
       if (main && st.stage === 'done') {
         r.hidden = false; setTimeout(() => coursePop('done'), 2500);
-        r.innerHTML = `<h2>الفيديو جاهز 🎬</h2><video controls src="/files/${N}/out/${encodeURIComponent(main)}?v=${Date.now()}"></video>
+        r.innerHTML = `<h2>الفيديو جاهز 🎬</h2><video id="vid" controls src="/files/${N}/out/${encodeURIComponent(main)}?v=${Date.now()}"></video>
           <div class="outs">${p.outputs.map(o => `<a href="/files/${N}/out/${encodeURIComponent(o)}?download=1"><span>${esc(o)}</span><span>⬇️ تحميل</span></a>`).join('')}</div>`;
       } else if (p.preview) {
         r.hidden = false;
@@ -256,6 +274,85 @@ async function progress(P) {
       lg.forEach(e => { since = Math.max(since, e.t); const d = document.createElement('div'); d.className = e.who; d.textContent = e.text; box.append(d); });
       if (atEnd) box.scrollTop = box.scrollHeight;
     }
+  }
+
+  // ─── الاستوديو: النص · العناصر · الملاحظات ───
+  let D = null, tab = 'text';
+  const vid = () => $('#vid'), now = () => vid() ? vid().currentTime : 0;
+  const seek = t => { const v = vid(); if (v) { v.currentTime = t; v.play(); } };
+  const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => { tab = t.dataset.t; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t)); draw(); });
+  async function loadDoc() {
+    D = await api(`/api/projects/${N}/doc`).catch(() => null);
+    if (!D || !(D.caps.words || []).length) return;
+    $('#studio').hidden = false; draw();
+  }
+  function bar() {
+    $('#dbar').innerHTML = D.dirty ? `<div class="dirty"><span>عندك تعديلات ما انطبقت</span><button class="btn" id="rb">طبّق وأعد التصدير</button></div>` : '';
+    if (D.dirty) $('#rb').onclick = () => post(`/api/projects/${N}/rebuild`).then(() => { D.dirty = false; bar(); tick(); }).catch(e => alert(e.message));
+  }
+  function draw() { bar(); ({text: drawText, els: drawEls, notes: drawNotes})[tab](); }
+  function sentences() {
+    const out = []; let cur = [];
+    D.caps.words.forEach((w, i) => {
+      const nx = D.caps.words[i + 1]; cur.push(w);
+      if (!nx || nx.s - w.e > .45 || cur.length >= 9 || /[.!?؟،]$/.test(w.t)) { out.push(cur); cur = []; }
+    });
+    return out;
+  }
+  function drawText() {
+    const S = sentences();
+    $('#pane').innerHTML = `<p class="hint">اضغط كلمة عشان تروح لها · اضغط مرتين عشان تصححها أو تميّزها</p>` + S.map((ws, i) => `
+      <div class="sent"><span class="tm" data-t="${ws[0].s}">${fmt(ws[0].s)}</span>
+        <span class="ws">${ws.map(w => `<span class="w ${w.hot ? 'hot' : ''}" data-t="${w.s}" data-w="${esc(w.t)}">${esc(w.t)}</span>`).join(' ')}</span>
+        <button class="mini" data-del="${i}" title="ملاحظة حذف لـ Claude">حذف</button></div>`).join('');
+    $('#pane').querySelectorAll('[data-t]').forEach(e => e.onclick = () => seek(+e.dataset.t));
+    $('#pane').querySelectorAll('.w').forEach(e => e.ondblclick = async () => {
+      const to = prompt('صحّح الكلمة (اتركها نفسها لو تبي تميّزها بس):', e.dataset.w); if (to === null || !to.trim()) return;
+      const hot = confirm('تبيها كلمة مميزة (تطلع بلون بارز)؟');
+      await post(`/api/projects/${N}/fix`, {from: e.dataset.w, to: to.trim(), hot}).catch(x => alert(x.message));
+      loadDoc();
+    });
+    $('#pane').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      const ws = S[+b.dataset.del];
+      await post(`/api/projects/${N}/note`, {t: ws[0].s, text: `احذف هذي الجملة: «${ws.map(w => w.t).join(' ')}»`});
+      b.textContent = '✓ انضافت للملاحظات'; b.disabled = true; D = await api(`/api/projects/${N}/doc`);
+    });
+  }
+  const KINDS = {chapters: ['فصل', 'at', ['label']], stickers: ['ملصق', 'at', ['text']], hero: ['عنوان كبير', 'a', ['title', 'subtitle']],
+                 broll: ['لقطة شاشة', 'a', ['tag']], strike: ['قائمة', 'a', []], fix: ['زوم', 'a', []]};
+  function drawEls() {
+    const T = D.timeline || {}, rows = [];
+    Object.entries(KINDS).forEach(([k, [lb, tk, fs]]) => (T[k] || []).forEach(e => rows.push({k, lb, t: e[tk] || 0, fs, e})));
+    rows.sort((a, b) => a.t - b.t);
+    if (T.endCard) rows.push({k: 'endCard', lb: 'خاتمة', t: (D.caps.total || 0), fs: ['title', 'button'], e: T.endCard});
+    $('#pane').innerHTML = `<p class="hint">عدّل النص مباشرة أو احذف العنصر · لإضافة عنصر جديد اكتب ملاحظة لـ Claude</p>` + (rows.map((r, j) => `
+      <div class="el"><div class="k">${r.lb}<small data-t="${r.t}" style="cursor:pointer">${fmt(r.t)}</small></div>
+        <div>${r.fs.map(f => `<input type="text" data-j="${j}" data-f="${f}" value="${esc(r.e[f] || '')}">`).join('') || '<span class="hint">—</span>'}</div>
+        <button class="mini" data-x="${j}">حذف</button></div>`).join('') || '<p class="empty">ما فيه عناصر</p>');
+    const save = () => post(`/api/projects/${N}/timeline`, T).then(() => { D.dirty = true; bar(); });
+    $('#pane').querySelectorAll('small[data-t]').forEach(e => e.onclick = () => seek(+e.dataset.t));
+    $('#pane').querySelectorAll('input[data-j]').forEach(inp => inp.onchange = () => { rows[+inp.dataset.j].e[inp.dataset.f] = inp.value; save(); });
+    $('#pane').querySelectorAll('[data-x]').forEach(b => b.onclick = () => {
+      const r = rows[+b.dataset.x]; if (!confirm(`أحذف «${r.lb}»؟`)) return;
+      if (r.k === 'endCard') delete T.endCard; else T[r.k].splice(T[r.k].indexOf(r.e), 1);
+      save().then(drawEls);
+    });
+  }
+  function drawNotes() {
+    const pend = D.notes.filter(n => !n.done).length;
+    $('#pane').innerHTML = `<p class="hint">وقّف الفيديو على اللحظة اللي تبيها واكتب ملاحظتك — Claude ينفّذها كلها مرة وحدة</p>
+      <div class="ask" style="margin:0 0 12px"><textarea id="nt" placeholder="مثال: هنا حط ملصق «مجاني 100%»"></textarea><button class="btn ghost" id="add">أضف عند <span id="at">${fmt(now())}</span></button></div>
+      ${D.notes.map(n => `<div class="nt ${n.done ? 'done' : ''}"><span class="tm" data-t="${n.t}">${fmt(n.t)}</span><span class="tx">${n.done ? '✅ ' : ''}${esc(n.text)}</span><button class="mini" data-d="${n.id}">×</button></div>`).join('') || '<p class="empty">ما فيه ملاحظات</p>'}
+      ${pend ? `<button class="btn" id="runN" style="margin-top:14px;width:100%">نفّذ ${pend} ملاحظات بـ Claude</button>` : ''}`;
+    const v = vid(); if (v) v.ontimeupdate = () => { const a = $('#at'); if (a) a.textContent = fmt(v.currentTime); };
+    $('#add').onclick = async () => {
+      const t = $('#nt').value.trim(); if (!t) return;
+      await post(`/api/projects/${N}/note`, {t: now(), text: t}).catch(e => alert(e.message)); loadDoc();
+    };
+    $('#pane').querySelectorAll('.tm').forEach(e => e.onclick = () => seek(+e.dataset.t));
+    $('#pane').querySelectorAll('[data-d]').forEach(b => b.onclick = () => post(`/api/projects/${N}/note`, {del: +b.dataset.d}).then(loadDoc));
+    if (pend) $('#runN').onclick = () => post(`/api/projects/${N}/notes_run`).then(tick).catch(e => alert(e.message));
   }
   tick(); timer = setInterval(tick, 2000);
 }

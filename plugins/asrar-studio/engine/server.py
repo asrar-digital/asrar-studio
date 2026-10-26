@@ -103,16 +103,22 @@ def find_claude():
     return None
 
 
+def snapshot(name):
+    """نسخة احتياطية قبل أي تعديل (للتراجع)."""
+    p = pdir(name)
+    snap = p / '.snapshots' / time.strftime('%Y%m%d-%H%M%S')
+    snap.mkdir(parents=True, exist_ok=True)
+    for f in ('edit.json', 'timeline.json', 'brief.json', 'notes.json'):
+        if (p / f).exists(): shutil.copy(p / f, snap / f)
+
+
 def run_claude(name, task):
     """يشغّل Claude Code بدون واجهة داخل مجلد المشروع ويبث رسائله للسجل."""
     exe = find_claude()
     if not exe:
         raise RuntimeError('ما لقيت Claude Code على جهازك')
     p = pdir(name)
-    snap = p / '.snapshots' / time.strftime('%Y%m%d-%H%M%S')    # نسخة احتياطية قبل أي تعديل
-    snap.mkdir(parents=True, exist_ok=True)
-    for f in ('edit.json', 'timeline.json', 'brief.json'):
-        if (p / f).exists(): shutil.copy(p / f, snap / f)
+    snapshot(name)
     cmd = [exe, '-p', 'Follow the task given on stdin. Work only inside the current project folder.',
            '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits',
            '--append-system-prompt-file', str(ENGINE / 'AGENT.md'), '--add-dir', str(ENGINE),
@@ -158,10 +164,10 @@ def guarded(fn, *a):
         raise Fail('توقفت خطوة في المحرّك — شوف السجل')
 
 
-def pipeline(name, from_stage='transcribe'):
+def pipeline(name, from_stage='transcribe', skip=()):
     p = pdir(name)
     try:
-        order = STAGE_KEYS[STAGE_KEYS.index(from_stage):]
+        order = [k for k in STAGE_KEYS[STAGE_KEYS.index(from_stage):] if k not in skip]
         if 'transcribe' in order:
             set_status(name, 'transcribe', 'run', 'أفرّغ كلامك…'); log(name, 'بدأت التفريغ — أول مرة ينزّل نموذج اللغة (~3 قيقا)')
             guarded(S.transcribe, name)
@@ -187,6 +193,7 @@ def pipeline(name, from_stage='transcribe'):
             set_status(name, 'render', 'run', 'أصدّر الفيديو (أطول خطوة)…')
             guarded(S.render, name)
             log(name, '✅ الفيديو جاهز للتحميل')
+        (p / '.dirty_cut').unlink(missing_ok=True)
         set_status(name, 'done', 'ok', 'جاهز 🎬')
     except Exception as e:
         msg = str(e) if isinstance(e, (Fail, RuntimeError)) else 'صار خطأ غير متوقع'
@@ -211,12 +218,12 @@ def plan_task(name):
     )
 
 
-def start_job(name, from_stage):
+def start_job(name, from_stage, skip=()):
     with LOCK:
         if name in JOBS:
             return False
         JOBS[name] = True
-    threading.Thread(target=pipeline, args=(name, from_stage), daemon=True).start()
+    threading.Thread(target=pipeline, args=(name, from_stage, skip), daemon=True).start()
     return True
 
 
@@ -305,6 +312,11 @@ class H(BaseHTTPRequestHandler):
                 if what is None: return self.send_json(project_info(name))
                 if what == 'log': return self.send_json(read_log(name, float((q.get('since') or ['0'])[0])))
                 if what == 'stages': return self.send_json(STAGES)
+                if what == 'doc':
+                    p = pdir(name)
+                    return self.send_json({'caps': rj(p / 'caps.json', {}), 'timeline': rj(p / 'timeline.json', {}),
+                                           'notes': rj(p / 'notes.json', []), 'edit': rj(p / 'edit.json', {}),
+                                           'dirty': (p / '.dirty_cut').exists() or (p / '.dirty_tl').exists()})
             m = re.match(r'^/files/([^/]+)/(.+)$', path)
             if m:
                 f = (pdir(m.group(1)) / m.group(2)).resolve()
@@ -382,6 +394,52 @@ class H(BaseHTTPRequestHandler):
                     start_job(name, 'preview')
                 with LOCK:
                     JOBS[name] = True
+                threading.Thread(target=job, daemon=True).start()
+                return self.send_json({'ok': True})
+            if act == 'note':      # ملاحظة على ثانية
+                b = self.body_json(); notes = rj(p / 'notes.json', [])
+                if b.get('del'):
+                    notes = [n for n in notes if n['id'] != b['del']]
+                else:
+                    if not (b.get('text') or '').strip(): return self.send_json({'error': 'اكتب الملاحظة'}, 400)
+                    notes.append({'id': int(time.time() * 1000), 't': round(float(b.get('t') or 0), 2), 'text': b['text'].strip(), 'done': False})
+                wj(p / 'notes.json', sorted(notes, key=lambda n: n['t'])); return self.send_json({'ok': True})
+            if act == 'fix':       # تصحيح كلمة بالنص
+                b = self.body_json(); snapshot(name)
+                e = rj(p / 'edit.json', {}); e.setdefault('fixes', {})[b['from']] = b['to']
+                if b.get('hot') is not None:
+                    hot = set(e.get('hot', [])); (hot.add if b['hot'] else hot.discard)(b['to']); e['hot'] = sorted(hot)
+                wj(p / 'edit.json', e); (p / '.dirty_cut').touch(); return self.send_json({'ok': True})
+            if act == 'timeline':  # حفظ العناصر بعد التعديل/الحذف
+                snapshot(name); wj(p / 'timeline.json', self.body_json()); (p / '.dirty_tl').touch()
+                return self.send_json({'ok': True})
+            if act == 'rebuild':   # طبّق التعديلات اليدوية وأعد التصدير (بدون Claude)
+                if name in JOBS: return self.send_json({'error': 'المشروع شغّال الحين'}, 409)
+                (p / '.dirty_tl').unlink(missing_ok=True)
+                start_job(name, 'cut' if (p / '.dirty_cut').exists() else 'preview', skip=('plan',))
+                log(name, 'أطبّق تعديلاتك وأعيد التصدير…'); return self.send_json({'ok': True})
+            if act == 'notes_run':  # Claude ينفّذ الملاحظات المعلّقة
+                if name in JOBS: return self.send_json({'error': 'المشروع شغّال الحين'}, 409)
+                notes = rj(p / 'notes.json', []); todo = [n for n in notes if not n['done']]
+                if not todo: return self.send_json({'error': 'ما فيه ملاحظات جديدة'}, 400)
+                lines = '\n'.join(f"- عند الثانية {n['t']:.1f}: {n['text']}" for n in todo)
+                log(name, f'سلّمت {len(todo)} ملاحظات لـ Claude', 'user')
+                def job():
+                    try:
+                        set_status(name, 'plan', 'run', 'Claude ينفّذ ملاحظاتك…')
+                        run_claude(name, 'ملاحظات المستخدم على الفيديو الحالي (التوقيت بثواني الفيديو النهائي = توقيتات caps.json):\n' + lines +
+                                   '\nنفّذ كل ملاحظة بتعديل edit.json/timeline.json. إذا عدّلت edit.json شغّل cut وعدّل توقيتات timeline.json لتطابق caps.json الجديد. ثم preview وتأكد. لا ترندر.')
+                        ids = {n['id'] for n in todo}; cur = rj(p / 'notes.json', [])
+                        for n in cur:
+                            if n['id'] in ids: n['done'] = True
+                        wj(p / 'notes.json', cur)
+                    except Exception as e:
+                        log(name, '❌ ' + str(e), 'error'); set_status(name, None, 'error', str(e), error=str(e))
+                        with LOCK: JOBS.pop(name, None)
+                        return
+                    with LOCK: JOBS.pop(name, None)
+                    start_job(name, 'preview')
+                with LOCK: JOBS[name] = True
                 threading.Thread(target=job, daemon=True).start()
                 return self.send_json({'ok': True})
             if act == 'undo':
