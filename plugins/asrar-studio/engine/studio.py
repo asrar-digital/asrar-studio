@@ -84,7 +84,7 @@ def doctor():
 
 
 # ───────────────────────── new ─────────────────────────
-def new(name, clips):
+def new(name, clips, fit=False):
     p = HOME / 'projects' / name
     p.mkdir(parents=True, exist_ok=True)
     ins, fc, L = [], '', ''
@@ -92,7 +92,9 @@ def new(name, clips):
         if not Path(c).exists():
             die(f'ما لقيت الملف: {c}')
         ins += ['-i', c]
-        fc += (f'[{i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps={FPS},setsar=1[v{i}];'
+        vf = ('split[x][y];[x]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=30:2,eq=brightness=-0.15[bg];'
+              '[y]scale=1080:-2[fg];[bg][fg]overlay=0:(H-h)/2,') if fit else 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,'
+        fc += (f'[{i}:v]{vf}fps={FPS},setsar=1[v{i}];'
                f'[{i}:a]aresample=48000,aformat=channel_layouts=stereo[a{i}];')
         L += f'[v{i}][a{i}]'
     fc += f'{L}concat=n={len(clips)}:v=1:a=1[v][a]'

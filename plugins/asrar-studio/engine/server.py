@@ -172,6 +172,15 @@ def pipeline(name, from_stage='transcribe', skip=()):
             set_status(name, 'transcribe', 'run', 'أفرّغ كلامك…'); log(name, 'بدأت التفريغ — أول مرة ينزّل نموذج اللغة (~3 قيقا)')
             guarded(S.transcribe, name)
             log(name, f'✅ التفريغ خلص: {len(rj(p / "words.json", {}).get("words", []))} كلمة')
+        if rj(p / 'brief.json', {}).get('mode') == 'clips' and 'transcribe' in order:
+            # فيديو طويل → Claude يرشّح أفضل المقاطع ويعطيها درجة، والمستخدم يختار
+            set_status(name, 'plan', 'run', 'Claude يدوّر أقوى المقاطع…')
+            run_claude(name, clips_task(name))
+            n = len(rj(p / 'clips.json', []))
+            if not n: raise Fail('Claude ما لقى مقاطع (clips.json)')
+            log(name, f'✅ لقيت {n} مقاطع — اختر اللي تبيها')
+            set_status(name, 'done', 'ok', 'اختر المقاطع اللي تبيها ✂️')
+            return
         if 'cut' in order:
             set_status(name, 'cut', 'run', 'أقص السكتات…')
             if not (p / 'edit.json').exists(): wj(p / 'edit.json', {})
@@ -192,6 +201,7 @@ def pipeline(name, from_stage='transcribe', skip=()):
         if 'render' in order:
             set_status(name, 'render', 'run', 'أصدّر الفيديو (أطول خطوة)…')
             guarded(S.render, name)
+            extra_aspects(name)
             log(name, '✅ الفيديو جاهز للتحميل')
         (p / '.dirty_cut').unlink(missing_ok=True)
         set_status(name, 'done', 'ok', 'جاهز 🎬')
@@ -203,6 +213,94 @@ def pipeline(name, from_stage='transcribe', skip=()):
     finally:
         with LOCK:
             JOBS.pop(name, None)
+
+
+ASPECTS = {'4x5': (1080, 1350, 'إنستقرام 4×5'), '1x1': (1080, 1080, 'مربع 1×1')}
+
+
+def extra_aspects(name):
+    """نسخ بمقاسات ثانية من النسخة الأساسية (قص من المنتصف — الكابشن عند y≈1390 يبقى داخل الإطار)."""
+    p = pdir(name)
+    out = p / 'out'
+    main = next(iter(sorted(out.glob('*تيك توك*.mp4'))), None)
+    for k in rj(p / 'brief.json', {}).get('aspects', []):
+        if k not in ASPECTS or not main: continue
+        w, h, lb = ASPECTS[k]
+        y = min(1920 - h, max(0, 1390 + 110 - h + 60))   # الإطار ينزل لين يشمل الكابشن
+        vf = f'crop={w}:{h}:0:{y}'
+        if h <= 1080:   # المربع يقص كثير → الفيديو كامل بالنص وخلفه نسخة مغبّشة
+            vf = (f'split[a][b];[a]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=30:2,eq=brightness=-0.12[bg];'
+                  f'[b]scale=-2:{h}[fg];[bg][fg]overlay=(W-w)/2:0')
+        S.ff('-i', main, '-vf', vf, '-c:v', 'libx264', '-crf', '17', '-preset', 'medium', '-pix_fmt', 'yuv420p',
+             '-c:a', 'copy', '-movflags', '+faststart', out / main.name.replace('تيك توك وريلز', lb))
+        log(name, f'✅ نسخة {lb}')
+
+
+def clips_task(name):
+    return ('هذا فيديو طويل (بودكاست/بث/شرح). المطلوب: رشّح أقوى 4-8 مقاطع قصيرة تصلح تيك توك/ريلز.\n'
+            '١) اقرأ words.json (كلمات + توقيتات بالثواني من الفيديو الأصلي src.mp4).\n'
+            '٢) كل مقطع 20-60 ثانية، يبدأ بجملة قوية (هوك) وينتهي بفكرة مكتملة — لا تقطع بنص جملة.\n'
+            '٣) اكتب clips.json بمجلد المشروع: [{"id":1,"a":ثانية_البداية,"b":ثانية_النهاية,"score":0-100,'
+            '"title":"عنوان قصير جذاب","hook":"أول جملة","why":"ليش بينتشر بسطر"}] مرتبة من الأعلى درجة.\n'
+            'الدرجة = قوة الهوك + وضوح الفكرة + قابلية المشاركة. كن صارم بالدرجات. لا تسوي أي شي ثاني.')
+
+
+def pack_task(name):
+    return ('اكتب باقة نشر لهذا الفيديو بالعربي (لهجة سعودية) من words.json و brief.json، واحفظها publish.json:\n'
+            '{"tiktok":"وصف تيك توك/ريلز","tweet":"تغريدة X","reply":"رد على التغريدة فيه الرابط","telegram":"رسالة قروب التليقرام"}\n'
+            'القواعد: وصف تيك توك/إنستقرام **بدون أي روابط** (قل «الرابط في البايو»، والتليقرام بالاسم فقط)، هوك بأول سطر، 3-5 هاشتاقات.\n'
+            'التغريدة بدون رابط، والرابط يكون في reply. رسالة التليقرام قصيرة وحماسية. نص عادي بدون علامات ``` أو ماركداون. لا تسوي أي شي ثاني.')
+
+
+def claude_job(name, msg, task, after=None):
+    """يشغّل Claude بالخلفية على المشروع ثم (اختياري) يكمّل خطوة."""
+    def job():
+        try:
+            set_status(name, 'plan', 'run', msg)
+            run_claude(name, task)
+        except Exception as e:
+            log(name, '❌ ' + str(e), 'error'); set_status(name, None, 'error', str(e), error=str(e))
+            with LOCK: JOBS.pop(name, None)
+            return
+        with LOCK: JOBS.pop(name, None)
+        if after: after()
+        else: set_status(name, 'done', 'ok', 'جاهز 🎬')
+    with LOCK:
+        if name in JOBS: return False
+        JOBS[name] = True
+    threading.Thread(target=job, daemon=True).start()
+    return True
+
+
+def make_clips(name, ids):
+    """يقص المقاطع المختارة لمشاريع جديدة ويشغّلها ورا بعض."""
+    p = pdir(name)
+    clips = {c['id']: c for c in rj(p / 'clips.json', [])}
+    brief = dict(rj(p / 'brief.json', {}), mode='short')
+    made = []
+    for i in ids:
+        c = clips.get(i)
+        if not c: continue
+        nm = re.sub(r'[^\w؀-ۿ-]+', '-', f"{name}-{c.get('title') or i}").strip('-')[:50]
+        base, k = nm, 2
+        while (PROJ / nm).exists(): nm = f'{base}-{k}'; k += 1
+        (PROJ / nm / 'inputs').mkdir(parents=True)
+        S.ff('-ss', f"{float(c['a']):.2f}", '-to', f"{float(c['b']):.2f}", '-i', p / 'src.mp4', '-c:v', 'libx264', '-crf', '14',
+             '-preset', 'fast', '-c:a', 'aac', '-b:a', '256k', PROJ / nm / 'inputs' / '00_clip.mp4')
+        wj(PROJ / nm / 'brief.json', dict(brief, title=c.get('title') or nm))
+        set_status(nm, 'upload', 'run', 'بالدور…'); log(nm, f'مقطع من «{name}» ({c["a"]:.0f}–{c["b"]:.0f} ث) — درجة {c.get("score")}')
+        made.append(nm)
+
+    def runner():
+        for nm in made:
+            try:
+                build_source(nm)
+            except BaseException as e:
+                set_status(nm, None, 'error', str(e), error=str(e)); continue
+            with LOCK: JOBS[nm] = True
+            pipeline(nm, 'transcribe')
+    threading.Thread(target=runner, daemon=True).start()
+    return made
 
 
 def plan_task(name):
@@ -233,7 +331,7 @@ def build_source(name):
     ins = sorted((p / 'inputs').glob('*'))
     if not ins:
         raise Fail('ما رفعت أي مقطع')
-    S.new(name, [str(f) for f in ins])
+    S.new(name, [str(f) for f in ins], fit=rj(p / 'brief.json', {}).get('frame') == 'fit')
     S.ff('-ss', '1', '-i', p / 'src.mp4', '-frames:v', '1', '-vf', 'scale=360:-2', p / 'thumb.jpg')
 
 
@@ -316,7 +414,8 @@ class H(BaseHTTPRequestHandler):
                     p = pdir(name)
                     return self.send_json({'caps': rj(p / 'caps.json', {}), 'timeline': rj(p / 'timeline.json', {}),
                                            'notes': rj(p / 'notes.json', []), 'edit': rj(p / 'edit.json', {}),
-                                           'dirty': (p / '.dirty_cut').exists() or (p / '.dirty_tl').exists()})
+                                           'clips': rj(p / 'clips.json', []), 'publish': rj(p / 'publish.json', None),
+                                           'dirty':(p / '.dirty_cut').exists() or (p / '.dirty_tl').exists()})
             m = re.match(r'^/files/([^/]+)/(.+)$', path)
             if m:
                 f = (pdir(m.group(1)) / m.group(2)).resolve()
@@ -442,6 +541,46 @@ class H(BaseHTTPRequestHandler):
                 with LOCK: JOBS[name] = True
                 threading.Thread(target=job, daemon=True).start()
                 return self.send_json({'ok': True})
+            if act == 'pack':      # باقة النشر
+                if not claude_job(name, 'Claude يكتب باقة النشر…', pack_task(name)):
+                    return self.send_json({'error': 'المشروع شغّال الحين'}, 409)
+                log(name, 'طلبت باقة النشر', 'user'); return self.send_json({'ok': True})
+            if act == 'grab':      # تنزيل من رابط يوتيوب (أو أي موقع يدعمه yt-dlp)
+                url = (self.body_json().get('url') or '').strip()
+                if not re.match(r'^https?://', url): return self.send_json({'error': 'حط رابط صحيح'}, 400)
+                if name in JOBS: return self.send_json({'error': 'المشروع شغّال الحين'}, 409)
+                with LOCK: JOBS[name] = True
+                def dl():
+                    try:
+                        set_status(name, 'upload', 'run', 'أنزّل الفيديو من الرابط…'); log(name, 'أنزّل: ' + url)
+                        (p / 'inputs').mkdir(exist_ok=True)
+                        cmd = [sys.executable, '-m', 'yt_dlp', '--js-runtimes', 'node', '-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b',
+                               '--merge-output-format', 'mp4', '--no-playlist', '--newline', '-o', str(p / 'inputs' / '00_youtube.%(ext)s'), url]
+                        kw = {'creationflags': 0x08000000} if os.name == 'nt' else {}
+                        pr = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kw)
+                        last = ''
+                        for raw in pr.stdout:
+                            ln = raw.decode('utf-8', 'replace').strip()
+                            m2 = re.search(r'\[download\]\s+(\d+(?:\.\d)?)%', ln)
+                            if m2 and m2.group(1).split('.')[0] != last:
+                                last = m2.group(1).split('.')[0]; set_status(name, 'upload', 'run', f'أنزّل الفيديو… {last}%')
+                            elif 'ERROR' in ln: log(name, ln[-200:], 'error')
+                        pr.wait()
+                        if pr.returncode or not list((p / 'inputs').glob('00_youtube.*')):
+                            raise Fail('ما قدرت أنزّل الرابط — تأكد إنه عام وشغّال')
+                        log(name, '✅ نزل الفيديو'); set_status(name, 'upload', 'idle', 'نزل الفيديو — كمّل الأسئلة واضغط ابدأ')
+                    except Exception as e:
+                        msg = str(e) if isinstance(e, Fail) else 'فشل التنزيل'
+                        log(name, '❌ ' + msg, 'error'); set_status(name, 'upload', 'idle', msg, error=msg)
+                    finally:
+                        with LOCK: JOBS.pop(name, None)
+                threading.Thread(target=dl, daemon=True).start()
+                return self.send_json({'ok': True})
+            if act == 'clips_make':
+                ids = [int(i) for i in self.body_json().get('ids', [])]
+                if not ids: return self.send_json({'error': 'اختر مقطع واحد على الأقل'}, 400)
+                made = make_clips(name, ids); log(name, f'✂️ بديت أصنع {len(made)} مقاطع')
+                return self.send_json({'made': made})
             if act == 'undo':
                 snaps = sorted((p / '.snapshots').glob('*')) if (p / '.snapshots').exists() else []
                 if not snaps: return self.send_json({'error': 'ما فيه نسخة احتياطية'}, 400)

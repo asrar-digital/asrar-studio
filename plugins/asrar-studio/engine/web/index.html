@@ -78,18 +78,17 @@ video{width:100%;border-radius:16px;background:#000;max-height:70vh}
 .nt{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #1d1a15}.nt.done{opacity:.5}
 .nt .tm{direction:ltr;color:var(--gold);cursor:pointer;min-width:42px}.nt .tx{flex:1}
 .dirty{background:#2a2110;border:1px solid var(--gold);border-radius:14px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+.clip{display:grid;grid-template-columns:auto 1fr;gap:14px;padding:14px;border:1px solid var(--line);border-radius:16px;margin-bottom:10px;cursor:pointer}
+.clip.on{border-color:var(--gold);background:#1a1408}.clip .sc{font-weight:900;font-size:26px;color:var(--gold);min-width:56px;text-align:center}
+.clip .sc small{display:block;font-size:11px;color:var(--mut);font-weight:500}.clip h4{margin:0 0 4px;font-size:16px}
+.clip .hk{color:var(--gold2);font-size:14px}.clip .wy{color:var(--mut);font-size:13px}
+.chk{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #1d1a15}.chk b.ok{color:var(--ok)}.chk b.warn{color:#ffb84d}.chk b.bad{color:var(--bad)}
+.pk{margin-bottom:14px}.pk label{display:flex;justify-content:space-between;font-weight:700;margin-bottom:6px}
+.pk pre{white-space:pre-wrap;background:#0b0a09;border:1px solid var(--line);border-radius:12px;padding:12px;margin:0;font:inherit;font-size:14px}
 .hint{color:var(--mut);font-size:13px;margin:0 0 10px}
-.pop{position:fixed;inset:0;background:#000c;display:grid;place-items:center;z-index:9;padding:16px;animation:f .3s}
-@keyframes f{from{opacity:0}}
-.pop .in{background:linear-gradient(160deg,#1a1408,#0b0a09);border:1px solid var(--gold);border-radius:26px;max-width:440px;padding:30px 26px;text-align:center;position:relative}
-.pop .x{position:absolute;top:12px;left:14px;background:none;border:0;color:var(--mut);font-size:22px;cursor:pointer}
-.pop .tg{display:inline-block;background:#2a2110;color:var(--gold2);border-radius:99px;padding:4px 14px;font-size:13px;margin-bottom:12px}
-.pop h3{font-weight:900;font-size:24px;margin:0 0 10px}.pop h3 b{color:var(--gold)}
-.pop p{color:var(--mut);margin:0 0 20px}.pop ul{list-style:none;padding:0;margin:0 0 22px;text-align:right}
-.pop li{padding:5px 0}.pop li:before{content:"✦ ";color:var(--gold)}
-.pop .btn{display:block;width:100%}.pop .later{display:block;margin-top:10px;color:var(--mut);font-size:14px;cursor:pointer;background:none;border:0;width:100%}
 @media(max-width:800px){.two,.row{grid-template-columns:1fr}}
 </style>
+<link rel="stylesheet" href="/web/offer.css">
 </head>
 <body>
 <div class="wrap">
@@ -147,7 +146,7 @@ async function project(name) {
 
 // صفحة الرفع + الأسئلة
 function setup(P) {
-  const b = Object.assign({style: 'editorial', type: 'شرح أداة', platform: 'tiktok', title: P.name, end: '', account: '@asrar_rg', notes: ''}, P.brief);
+  const b = Object.assign({mode: 'short', frame: 'crop', aspects: [], style: 'editorial', type: 'شرح أداة', platform: 'tiktok', title: P.name, end: '', account: '@asrar_rg', notes: ''}, P.brief);
   const opt = (k, v, t, s = '') => `<div class="opt ${b[k] === v ? 'on' : ''}" data-k="${k}" data-v="${esc(v)}">${t}${s ? `<small>${s}</small>` : ''}</div>`;
   $('#app').innerHTML = `
     <h1>${esc(P.name)}</h1><p class="sub">ارفع المقاطع وجاوب على الأسئلة — بعدها اضغط «ابدأ المونتاج».</p>
@@ -155,15 +154,23 @@ function setup(P) {
     <div class="box"><h2>١. المقاطع</h2>
       <div class="drop" id="dz">اسحب مقاطعك هنا أو اضغط للاختيار<br><small>تنرتب حسب ترتيب الاختيار</small></div>
       <input type="file" id="fi" accept="video/*" multiple hidden>
+      <div class="ask" style="margin-top:14px"><input type="text" id="yt" placeholder="أو حط رابط يوتيوب هنا…" dir="ltr"><button class="btn ghost" id="ytb">نزّل</button></div>
+      <div class="hint" id="ytm" style="margin-top:8px"></div>
       <div class="files" id="fl">${P.inputs.map(f => `<span class="f">✅ ${esc(f.replace(/^\d+_/, ''))}</span>`).join('')}</div>
     </div>
     <div class="box"><h2>٢. الأسئلة</h2>
+      <label class="q">وش عندك؟</label><div class="opts">
+        ${opt('mode', 'short', 'مقطع قصير', 'أسوي له مونتاج كامل')}${opt('mode', 'clips', 'فيديو طويل', 'أطلّع منه أقوى المقاطع بدرجات')}</div>
       <label class="q">نوع المقطع</label><div class="opts">
         ${['شرح أداة', 'إعلان', 'قصة', 'نصيحة', 'خبر'].map(v => opt('type', v, v)).join('')}</div>
       <label class="q">الستايل</label><div class="opts">
         ${opt('style', 'editorial', 'إديتوريال', 'أسود وبرتقالي — جريء')}${opt('style', 'gold', 'ذهبي', 'أسود وذهبي — فخم')}</div>
       <label class="q">المنصة الأساسية</label><div class="opts">
         ${opt('platform', 'tiktok', 'تيك توك / ريلز')}${opt('platform', 'x', 'X')}</div>
+      <label class="q">إذا الفيديو عرضي (يوتيوب، بودكاست)</label><div class="opts">
+        ${opt('frame', 'crop', 'قص للطول', 'يملا الشاشة — يقص الأطراف')}${opt('frame', 'fit', 'كامل بالنص', 'ما ينقص شي — خلفية مغبّشة')}</div>
+      <label class="q">مقاسات إضافية (9:16 دايم موجود)</label><div class="opts">
+        ${[['4x5', 'إنستقرام 4×5'], ['1x1', 'مربع 1×1']].map(([v, t]) => `<div class="opt asp ${b.aspects.includes(v) ? 'on' : ''}" data-a="${v}">${t}</div>`).join('')}</div>
       <div class="row">
         <div><label class="q">عنوان المقطع</label><input type="text" id="title" value="${esc(b.title)}"></div>
         <div><label class="q">اسم الحساب</label><input type="text" id="account" value="${esc(b.account)}"></div>
@@ -172,7 +179,10 @@ function setup(P) {
       <label class="q">ملاحظات لـ Claude (اختياري)</label><textarea id="notes" rows="3" placeholder="مثال: ركّز على الأرقام، وخلّ الهوك قوي">${esc(b.notes)}</textarea>
     </div>
     <button class="btn" id="go" ${P.inputs.length ? '' : 'disabled'}>ابدأ المونتاج 🎬</button>`;
-  document.querySelectorAll('.opt').forEach(o => o.onclick = () => {
+  document.querySelectorAll('.opt.asp').forEach(o => o.onclick = () => {
+    const a = o.dataset.a; b.aspects = b.aspects.includes(a) ? b.aspects.filter(x => x !== a) : [...b.aspects, a]; o.classList.toggle('on');
+  });
+  document.querySelectorAll('.opt:not(.asp)').forEach(o => o.onclick = () => {
     b[o.dataset.k] = o.dataset.v;
     document.querySelectorAll(`.opt[data-k="${o.dataset.k}"]`).forEach(x => x.classList.toggle('on', x === o));
   });
@@ -197,6 +207,20 @@ function setup(P) {
     }
     $('#go').disabled = !$('#fl').children.length;
   }
+  $('#ytb').onclick = async () => {
+    const url = $('#yt').value.trim(); if (!url) return;
+    $('#ytb').disabled = true;
+    try { await post(`/api/projects/${encodeURIComponent(P.name)}/grab`, {url}); } catch (e) { alert(e.message); $('#ytb').disabled = false; return; }
+    if (/youtu/.test(url) && b.mode === 'short') { b.mode = 'clips'; document.querySelectorAll('.opt[data-k="mode"]').forEach(x => x.classList.toggle('on', x.dataset.v === 'clips')); }
+    const iv = setInterval(async () => {
+      const q = await api(`/api/projects/${encodeURIComponent(P.name)}`).catch(() => null); if (!q) return;
+      $('#ytm').textContent = q.status.msg || '';
+      if (!q.running) {
+        clearInterval(iv); $('#ytb').disabled = false;
+        if (q.inputs.length) { $('#fl').innerHTML = q.inputs.map(f => `<span class="f">✅ ${esc(f.replace(/^\d+_/, ''))}</span>`).join(''); $('#go').disabled = false; }
+      }
+    }, 1500);
+  };
   $('#go').onclick = async () => {
     ['title', 'account', 'end', 'notes'].forEach(k => b[k] = $('#' + k).value.trim());
     $('#go').disabled = true; $('#go').textContent = 'أجهّز المقاطع…';
@@ -221,8 +245,9 @@ async function progress(P) {
       </div>
       <div>
         <div class="box" id="result" hidden></div>
+        <div class="box" id="clips" hidden></div>
         <div class="box" id="studio" hidden><h2>الاستوديو</h2><div id="dbar"></div>
-          <div class="tabs"><span class="tab on" data-t="text">النص</span><span class="tab" data-t="els">العناصر</span><span class="tab" data-t="notes">الملاحظات</span></div>
+          <div class="tabs"><span class="tab on" data-t="text">النص</span><span class="tab" data-t="els">العناصر</span><span class="tab" data-t="notes">الملاحظات</span><span class="tab" data-t="check">فحص</span><span class="tab" data-t="pack">النشر</span></div>
           <div id="pane"></div></div>
         <div class="box"><h2>سجل العمل</h2><div class="log" id="log"></div>
           <div class="ask"><textarea id="ask" placeholder="اطلب تعديل… مثال: كبّر الكابشن شوي، واحذف أول ٣ ثواني"></textarea>
@@ -284,6 +309,7 @@ async function progress(P) {
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => { tab = t.dataset.t; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t)); draw(); });
   async function loadDoc() {
     D = await api(`/api/projects/${N}/doc`).catch(() => null);
+    if (D && D.clips.length && !(D.caps.words || []).length) return drawClips();
     if (!D || !(D.caps.words || []).length) return;
     $('#studio').hidden = false; draw();
   }
@@ -291,7 +317,7 @@ async function progress(P) {
     $('#dbar').innerHTML = D.dirty ? `<div class="dirty"><span>عندك تعديلات ما انطبقت</span><button class="btn" id="rb">طبّق وأعد التصدير</button></div>` : '';
     if (D.dirty) $('#rb').onclick = () => post(`/api/projects/${N}/rebuild`).then(() => { D.dirty = false; bar(); tick(); }).catch(e => alert(e.message));
   }
-  function draw() { bar(); ({text: drawText, els: drawEls, notes: drawNotes})[tab](); }
+  function draw() { bar(); ({text: drawText, els: drawEls, notes: drawNotes, check: drawCheck, pack: drawPack})[tab](); }
   function sentences() {
     const out = []; let cur = [];
     D.caps.words.forEach((w, i) => {
@@ -339,6 +365,62 @@ async function progress(P) {
       save().then(drawEls);
     });
   }
+  // فيديو طويل → اختيار المقاطع
+  function drawClips() {
+    const sel = new Set(), box = $('#clips'); box.hidden = false;
+    box.innerHTML = `<h2>أقوى المقاطع ✂️</h2><p class="hint">اضغط على المقطع لاختياره · ▶ يشغّل المقطع</p>
+      <video id="cv" controls src="/files/${N}/src.mp4" style="max-height:45vh;margin-bottom:12px"></video>
+      ${D.clips.map(c => `<div class="clip" data-id="${c.id}"><div class="sc">${c.score}<small>من 100</small></div>
+        <div><h4>${esc(c.title)}</h4><div class="hk">«${esc(c.hook || '')}»</div><div class="wy">${esc(c.why || '')}</div>
+        <div class="hint" style="margin:6px 0 0"><button class="mini" data-play="${c.a}" data-end="${c.b}">▶ ${fmt(c.a)} – ${fmt(c.b)}</button> · ${Math.round(c.b - c.a)} ثانية</div></div></div>`).join('')}
+      <button class="btn" id="mk" style="width:100%" disabled>اصنع المقاطع المختارة</button><div id="made"></div>`;
+    const cv = $('#cv'); let end = 0;
+    cv.ontimeupdate = () => { if (end && cv.currentTime >= end) { cv.pause(); end = 0; } };
+    box.querySelectorAll('[data-play]').forEach(b => b.onclick = e => { e.stopPropagation(); cv.currentTime = +b.dataset.play; end = +b.dataset.end; cv.play(); });
+    box.querySelectorAll('.clip').forEach(c => c.onclick = () => {
+      const id = +c.dataset.id; sel.has(id) ? sel.delete(id) : sel.add(id); c.classList.toggle('on');
+      $('#mk').disabled = !sel.size; $('#mk').textContent = sel.size ? `اصنع ${sel.size} مقاطع` : 'اصنع المقاطع المختارة';
+    });
+    $('#mk').onclick = async () => {
+      $('#mk').disabled = true;
+      try {
+        const r = await post(`/api/projects/${N}/clips_make`, {ids: [...sel]});
+        $('#made').innerHTML = `<p class="hint" style="margin-top:12px">✅ بديت — كل مقطع صار مشروع لحاله ويتسوّى بالدور:</p>` +
+          r.made.map(m => `<a class="f" style="display:inline-block;margin:4px" href="/p/${encodeURIComponent(m)}">${esc(m)}</a>`).join('');
+        $('#made').querySelectorAll('a').forEach(a => a.onclick = e => { e.preventDefault(); go(a.getAttribute('href')); });
+      } catch (e) { alert(e.message); $('#mk').disabled = false; }
+    };
+  }
+  // فحص المقطع
+  function drawCheck() {
+    const W = D.caps.words, tot = D.caps.total || 0, txt = W.map(w => w.t);
+    const FILL = ['يعني', 'اه', 'آه', 'امم', 'ام', 'اممم', 'طيب', 'بس', 'كذا'];
+    const fill = txt.filter(t => FILL.includes(t.replace(/[.,،؟!]/g, ''))).length;
+    let rep = 0; txt.forEach((t, i) => { if (i && t === txt[i - 1]) rep++; });
+    const wps = W.length / Math.max(tot, 1), first = W.filter(w => w.s < 3).map(w => w.t).join(' ');
+    const T = D.timeline || {}, els = ['stickers', 'hero', 'broll', 'strike', 'chapters'].reduce((a, k) => a + (T[k] || []).length, 0);
+    const gap = (() => { const ts = []; ['stickers', 'hero', 'broll', 'strike', 'chapters'].forEach(k => (T[k] || []).forEach(e => ts.push(e.at ?? e.a))); ts.push(0, tot); ts.sort((a, b) => a - b); return Math.max(...ts.slice(1).map((t, i) => t - ts[i])); })();
+    const row = (n, v, c, h) => `<div class="chk"><span>${n}<div class="hint" style="margin:2px 0 0">${h}</div></span><b class="${c}">${v}</b></div>`;
+    $('#pane').innerHTML =
+      row('المدة', `${tot.toFixed(1)} ث`, tot <= 60 && tot >= 15 ? 'ok' : 'warn', 'تيك توك وريلز: الأفضل 30–45 ثانية · X: أقل من 2:20') +
+      row('سرعة الكلام', `${wps.toFixed(1)} كلمة/ث`, wps >= 1.8 && wps <= 3.5 ? 'ok' : 'warn', 'المريح 2–3 كلمات بالثانية') +
+      row('كلمات حشو', fill, fill <= 2 ? 'ok' : fill <= 5 ? 'warn' : 'bad', 'يعني، امم، آه… احذفها من تبويب النص') +
+      row('كلمات مكررة ورا بعض', rep, rep ? 'warn' : 'ok', 'غالباً تلعثم — احذفه بملاحظة') +
+      row('عناصر المونتاج', els, els >= Math.max(3, tot / 8) ? 'ok' : 'warn', 'عنصر كل 5–8 ثواني يمسك الانتباه') +
+      row('أطول فترة بدون حركة', `${gap.toFixed(1)} ث`, gap <= 8 ? 'ok' : 'warn', 'إذا أكثر من 8 ثواني المشاهد ممكن يطلع') +
+      `<div class="chk"><span>أول 3 ثواني (الهوك)<div class="hint" style="margin:2px 0 0">هل تمسك المشاهد؟ لازم تكون أقوى جملة</div></span></div><p style="color:var(--gold2);margin:8px 0 0">«${esc(first)}»</p>`;
+  }
+  // باقة النشر
+  function drawPack() {
+    const P = D.publish && Object.fromEntries(Object.entries(D.publish).map(([k, v]) => [k, String(v).replace(/^```\w*\n?|\n?```$/g, '')])), L = {tiktok: 'تيك توك / ريلز', tweet: 'تغريدة X', reply: 'رد التغريدة (الرابط)', telegram: 'قروب التليقرام'};
+    $('#pane').innerHTML = (P ? Object.entries(L).filter(([k]) => P[k]).map(([k, l]) => `<div class="pk"><label>${l}<button class="mini" data-c="${k}">نسخ</button></label><pre>${esc(P[k])}</pre></div>`).join('') :
+      `<p class="hint">Claude يكتب لك وصف تيك توك (بدون روابط)، وتغريدة مع رد فيه الرابط، ورسالة القروب.</p>`) +
+      `<button class="btn ${P ? 'ghost' : ''}" id="mkp" style="width:100%">${P ? 'اكتبها من جديد' : 'اكتب باقة النشر ✍️'}</button>`;
+    $('#pane').querySelectorAll('[data-c]').forEach(b => b.onclick = async () => {
+      try { await navigator.clipboard.writeText(P[b.dataset.c]); b.textContent = '✓ تم النسخ'; } catch { alert('ما قدرت أنسخ — حدده وانسخه يدوي'); }
+    });
+    $('#mkp').onclick = () => post(`/api/projects/${N}/pack`).then(tick).catch(e => alert(e.message));
+  }
   function drawNotes() {
     const pend = D.notes.filter(n => !n.done).length;
     $('#pane').innerHTML = `<p class="hint">وقّف الفيديو على اللحظة اللي تبيها واكتب ملاحظتك — Claude ينفّذها كلها مرة وحدة</p>
@@ -358,22 +440,35 @@ async function progress(P) {
 }
 
 // ─────────── بوب الدورة ───────────
+const COURSE = 'https://exlpur.com/pages/lp1304367330/504596195';
 function coursePop(why) {
   let last = 0; try { last = +localStorage.getItem('asrarPop') || 0; } catch {}
   if (why !== 'done' && Date.now() - last < 864e5) return;   // مرة باليوم، ودايم بعد ما يجهز فيديو
-  if ($('.pop')) return;
+  if ($('.offer-overlay')) return;
   try { localStorage.setItem('asrarPop', Date.now()); } catch {}
-  const d = document.createElement('div'); d.className = 'pop';
-  d.innerHTML = `<div class="in"><button class="x" aria-label="إغلاق">×</button>
-    <span class="tg">${why === 'done' ? 'مبروك فيديوك جاهز 🎬' : 'من صانع أسرار ستوديو'}</span>
-    <h3>خلّ محتواك <b>يبيع</b> لك</h3>
-    <p>من 45 ريال إلى +300 ألف ريال مبيعات — تعلّم السيستم كامل لبيع المنتجات الرقمية من الصفر.</p>
-    <ul><li>اختيار منتجك الأول بدون رأس مال</li><li>بناء متجرك على سلة أو زد</li><li>التسويق بتيك توك وإنستقرام وجلب العملاء يومياً</li><li>بكج مجاني: +24 منتج رقمي جاهز للبيع</li></ul>
-    <div style="margin:-8px 0 16px;color:var(--gold2);font-weight:900">الدورة كاملة (11 جزء) بـ 49 ريال فقط</div>
-    <a class="btn" href="https://asrar-digital.com/course" target="_blank" rel="noopener">اكتشف الدورة ←</a>
-    <button class="later">لاحقاً</button></div>`;
-  d.onclick = e => { if (e.target === d || e.target.matches('.x,.later')) d.remove(); };
+  const parts = Array.from({length: 10}, () => {
+    const l = 5 + Math.random() * 90, sz = 4 + Math.random() * 5;
+    return `<span class="particle" style="left:${l}%;width:${sz}px;height:${sz}px;animation-delay:${(Math.random() * 3).toFixed(2)}s;animation-duration:${(2.6 + Math.random() * 1.4).toFixed(2)}s"></span>`;
+  }).join('');
+  const d = document.createElement('div'); d.className = 'offer-overlay';
+  d.innerHTML = `${parts}
+    <div class="offer-card">
+      <button class="offer-close" aria-label="إغلاق">✕</button>
+      <span class="offer-kicker reveal">${why === 'done' ? '🎬 مبروك فيديوك جاهز' : '🔥 فرصة نادرة'}</span>
+      <div class="offer-loss reveal">من 45 ريالاً ضائعة..</div>
+      <div class="offer-headline reveal">إلى <span class="num" id="offerCounter">0</span> ريال مبيعات حقيقية</div>
+      <div class="offer-proof reveal"><img src="/web/proof.png" alt="إثبات مبيعات حقيقي">
+        <div class="offer-proof-cap">📊 إثباتات المبيعات الحقيقية — مبيعات شهر واحد</div></div>
+      <div class="offer-body reveal">لا نبيعك <b>أحلامًا</b>، نبيعك <b>"السيستم"</b> الذي حقق هذه الأرقام أمام عينك. تعلم تجارة المنتجات الرقمية والأتمتة من الصفر حتى الاحتراف.</div>
+      <div class="offer-price reveal"><span class="small">فرصة نادرة — احصل على الدورة الآن بـ</span>
+        <span class="big">49 ريال فقط</span><span class="urgent">⏳ اليوم فقط — فرصة لن تتكرر</span></div>
+      <a class="offer-cta reveal" href="${COURSE}" target="_blank" rel="noopener">سجل الآن</a>
+      <button class="offer-skip reveal">لا شكرًا، أكمل بدونها</button>
+    </div>`;
+  d.onclick = e => { if (e.target === d || e.target.matches('.offer-close,.offer-skip,.offer-cta')) d.remove(); };
   document.body.append(d);
+  const el = $('#offerCounter'), t0 = performance.now();
+  (function step(n) { const p = Math.min((n - t0) / 1500, 1); el.textContent = Math.floor((1 - Math.pow(1 - p, 3)) * 300000).toLocaleString('en-US'); if (p < 1) requestAnimationFrame(step); })(t0);
 }
 setTimeout(() => location.pathname === '/' && coursePop(), 6000);
 
