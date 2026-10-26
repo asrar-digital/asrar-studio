@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>أسرار ستوديو</title>
+<style>
+@font-face{font-family:T;src:url(/fonts/Tajawal-Medium.ttf);font-weight:500}
+@font-face{font-family:T;src:url(/fonts/Tajawal-Bold.ttf);font-weight:700}
+@font-face{font-family:T;src:url(/fonts/Tajawal-Black.ttf);font-weight:900}
+:root{--bg:#070707;--card:#121110;--line:#2a2620;--gold:#D4A84B;--gold2:#F3D28C;--txt:#F7F1E4;--mut:#9b927f;--ok:#7bd88f;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:500 16px/1.6 T,system-ui,sans-serif}
+a{color:inherit;text-decoration:none}
+button,input,textarea,select{font:inherit;color:inherit}
+.wrap{max-width:1100px;margin:0 auto;padding:24px 16px 80px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:28px}
+.logo{font-weight:900;font-size:24px}.logo b{color:var(--gold)}
+.pill{font-size:13px;color:var(--mut);border:1px solid var(--line);border-radius:99px;padding:4px 12px}
+.btn{background:var(--gold);color:#111;border:0;border-radius:14px;padding:12px 22px;font-weight:900;cursor:pointer}
+.btn:hover{background:var(--gold2)}.btn:disabled{opacity:.4;cursor:default}
+.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}.ghost:hover{background:#1b1915}
+h1{font-weight:900;font-size:30px;margin:0 0 6px}h2{font-weight:900;font-size:20px;margin:0 0 14px}
+.sub{color:var(--mut);margin:0 0 24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:22px;overflow:hidden}
+.pc{cursor:pointer;transition:.15s}.pc:hover{border-color:var(--gold);transform:translateY(-2px)}
+.pc .th{aspect-ratio:9/12;background:#000 center/cover;display:grid;place-items:center;color:var(--line);font-size:40px}
+.pc .in{padding:12px 14px}.pc .nm{font-weight:700}
+.st{font-size:13px;color:var(--mut)}.st.ok{color:var(--ok)}.st.run{color:var(--gold)}.st.error{color:var(--bad)}
+.new{display:grid;place-items:center;min-height:260px;border:2px dashed var(--line);color:var(--mut);cursor:pointer;border-radius:22px;font-weight:700}
+.new:hover{border-color:var(--gold);color:var(--gold)}
+.box{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:22px;margin-bottom:18px}
+.drop{border:2px dashed var(--line);border-radius:18px;padding:36px;text-align:center;color:var(--mut);cursor:pointer}
+.drop.on{border-color:var(--gold);color:var(--gold)}
+.files{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.f{background:#1b1915;border-radius:10px;padding:6px 12px;font-size:14px}
+label.q{display:block;font-weight:700;margin:18px 0 8px}
+.opts{display:flex;flex-wrap:wrap;gap:10px}
+.opt{border:1px solid var(--line);border-radius:14px;padding:10px 16px;cursor:pointer;background:#0d0c0b}
+.opt.on{border-color:var(--gold);background:#2a2110;color:var(--gold2)}
+.opt small{display:block;color:var(--mut);font-size:12px}
+input[type=text],textarea{width:100%;background:#0d0c0b;border:1px solid var(--line);border-radius:12px;padding:12px}
+input[type=text]:focus,textarea:focus{outline:none;border-color:var(--gold)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.two{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
+.steps{list-style:none;margin:0;padding:0}
+.steps li{display:flex;align-items:center;gap:12px;padding:10px 0;color:var(--mut)}
+.steps i{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-style:normal;font-size:13px;flex:none}
+.steps li.done{color:var(--txt)}.steps li.done i{background:var(--gold);border-color:var(--gold);color:#111}
+.steps li.now{color:var(--gold2);font-weight:700}.steps li.now i{border-color:var(--gold);animation:p 1.2s infinite}
+.steps li.err{color:var(--bad)}.steps li.err i{border-color:var(--bad)}
+@keyframes p{50%{box-shadow:0 0 0 6px #d4a84b33}}
+.log{height:360px;overflow:auto;background:#0b0a09;border-radius:14px;padding:12px;font-size:14px}
+.log div{padding:4px 0;border-bottom:1px solid #17150f}
+.log .claude{color:var(--gold2)}.log .claude:before{content:"Claude: ";font-weight:900;color:var(--gold)}
+.log .tool{color:var(--mut);font-size:12px;direction:ltr;text-align:left}
+.log .user{color:#9cd2ff}.log .user:before{content:"أنت: ";font-weight:900}
+.log .error{color:var(--bad)}.log .debug{display:none}
+video{width:100%;border-radius:16px;background:#000;max-height:70vh}
+.prev{width:100%;border-radius:12px;margin-top:10px}
+.outs a{display:flex;justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:12px;margin-top:8px}
+.outs a:hover{border-color:var(--gold)}
+.ask{display:flex;gap:10px;margin-top:12px}.ask textarea{height:52px;resize:vertical}
+.err{background:#2a1212;border:1px solid #5a2222;color:#ffb3b3;border-radius:12px;padding:10px 14px;margin:10px 0}
+.empty{color:var(--mut);text-align:center;padding:40px}
+.pop{position:fixed;inset:0;background:#000c;display:grid;place-items:center;z-index:9;padding:16px;animation:f .3s}
+@keyframes f{from{opacity:0}}
+.pop .in{background:linear-gradient(160deg,#1a1408,#0b0a09);border:1px solid var(--gold);border-radius:26px;max-width:440px;padding:30px 26px;text-align:center;position:relative}
+.pop .x{position:absolute;top:12px;left:14px;background:none;border:0;color:var(--mut);font-size:22px;cursor:pointer}
+.pop .tg{display:inline-block;background:#2a2110;color:var(--gold2);border-radius:99px;padding:4px 14px;font-size:13px;margin-bottom:12px}
+.pop h3{font-weight:900;font-size:24px;margin:0 0 10px}.pop h3 b{color:var(--gold)}
+.pop p{color:var(--mut);margin:0 0 20px}.pop ul{list-style:none;padding:0;margin:0 0 22px;text-align:right}
+.pop li{padding:5px 0}.pop li:before{content:"✦ ";color:var(--gold)}
+.pop .btn{display:block;width:100%}.pop .later{display:block;margin-top:10px;color:var(--mut);font-size:14px;cursor:pointer;background:none;border:0;width:100%}
+@media(max-width:800px){.two,.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="logo" href="/">أسرار <b>ستوديو</b></a>
+    <span class="pill" id="cl">…</span>
+  </header>
+  <main id="app"></main>
+</div>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const api = async (u, o = {}) => { const r = await fetch(u, o); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'خطأ'); return j; };
+const post = (u, b) => api(u, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(b || {})});
+const STL = {upload: 'بانتظار المقاطع', transcribe: 'تفريغ', cut: 'قص', plan: 'Claude يخطط', preview: 'معاينة', render: 'تصدير', done: 'جاهز'};
+let timer = null;
+
+api('/api/ping').then(p => $('#cl').textContent = p.claude ? '● Claude متصل' : '○ Claude غير مثبت').catch(() => {});
+
+function route() {
+  clearInterval(timer);
+  const m = location.pathname.match(/^\/p\/(.+)$/);
+  m ? project(decodeURIComponent(m[1])) : library();
+}
+window.onpopstate = route;
+function go(u) { history.pushState(0, '', u); route(); }
+
+// ─────────── المكتبة ───────────
+async function library() {
+  const list = await api('/api/projects');
+  $('#app').innerHTML = `
+    <h1>مشاريعك</h1><p class="sub">كل شي يشتغل على جهازك — ارفع مقاطعك و Claude يسوي المونتاج.</p>
+    <div class="grid">
+      <div class="new" id="nw"><div style="text-align:center"><div style="font-size:42px">+</div>مشروع جديد</div></div>
+      ${list.map(p => `
+        <div class="card pc" data-n="${esc(p.name)}">
+          <div class="th" style="${p.thumb ? `background-image:url('/files/${encodeURIComponent(p.name)}/thumb.jpg')` : ''}">${p.thumb ? '' : '🎬'}</div>
+          <div class="in"><div class="nm">${esc(p.name)}</div>
+          <div class="st ${p.status.state}">${p.status.state === 'error' ? '⚠️ توقف' : STL[p.status.stage] || ''}${p.outputs.length ? ' · ' + p.outputs.length + ' ملفات' : ''}</div></div>
+        </div>`).join('')}
+    </div>`;
+  $('#nw').onclick = async () => {
+    const name = prompt('اسم المشروع:', 'مقطع جديد'); if (!name) return;
+    const r = await post('/api/projects', {name}); go('/p/' + encodeURIComponent(r.name));
+  };
+  document.querySelectorAll('.pc').forEach(c => c.onclick = () => go('/p/' + encodeURIComponent(c.dataset.n)));
+}
+
+// ─────────── المشروع ───────────
+async function project(name) {
+  const P = await api('/api/projects/' + encodeURIComponent(name));
+  if (P.status.stage === 'upload' && P.status.state !== 'run') return setup(P);
+  progress(P);
+}
+
+// صفحة الرفع + الأسئلة
+function setup(P) {
+  const b = Object.assign({style: 'editorial', type: 'شرح أداة', platform: 'tiktok', title: P.name, end: '', account: '@asrar_rg', notes: ''}, P.brief);
+  const opt = (k, v, t, s = '') => `<div class="opt ${b[k] === v ? 'on' : ''}" data-k="${k}" data-v="${esc(v)}">${t}${s ? `<small>${s}</small>` : ''}</div>`;
+  $('#app').innerHTML = `
+    <h1>${esc(P.name)}</h1><p class="sub">ارفع المقاطع وجاوب على الأسئلة — بعدها اضغط «ابدأ المونتاج».</p>
+    ${P.status.error ? `<div class="err">${esc(P.status.error)}</div>` : ''}
+    <div class="box"><h2>١. المقاطع</h2>
+      <div class="drop" id="dz">اسحب مقاطعك هنا أو اضغط للاختيار<br><small>تنرتب حسب ترتيب الاختيار</small></div>
+      <input type="file" id="fi" accept="video/*" multiple hidden>
+      <div class="files" id="fl">${P.inputs.map(f => `<span class="f">✅ ${esc(f.replace(/^\d+_/, ''))}</span>`).join('')}</div>
+    </div>
+    <div class="box"><h2>٢. الأسئلة</h2>
+      <label class="q">نوع المقطع</label><div class="opts">
+        ${['شرح أداة', 'إعلان', 'قصة', 'نصيحة', 'خبر'].map(v => opt('type', v, v)).join('')}</div>
+      <label class="q">الستايل</label><div class="opts">
+        ${opt('style', 'editorial', 'إديتوريال', 'أسود وبرتقالي — جريء')}${opt('style', 'gold', 'ذهبي', 'أسود وذهبي — فخم')}</div>
+      <label class="q">المنصة الأساسية</label><div class="opts">
+        ${opt('platform', 'tiktok', 'تيك توك / ريلز')}${opt('platform', 'x', 'X')}</div>
+      <div class="row">
+        <div><label class="q">عنوان المقطع</label><input type="text" id="title" value="${esc(b.title)}"></div>
+        <div><label class="q">اسم الحساب</label><input type="text" id="account" value="${esc(b.account)}"></div>
+      </div>
+      <label class="q">نص النهاية (اختياري)</label><input type="text" id="end" value="${esc(b.end)}" placeholder="مثال: تابعني لأسرار أكثر">
+      <label class="q">ملاحظات لـ Claude (اختياري)</label><textarea id="notes" rows="3" placeholder="مثال: ركّز على الأرقام، وخلّ الهوك قوي">${esc(b.notes)}</textarea>
+    </div>
+    <button class="btn" id="go" ${P.inputs.length ? '' : 'disabled'}>ابدأ المونتاج 🎬</button>`;
+  document.querySelectorAll('.opt').forEach(o => o.onclick = () => {
+    b[o.dataset.k] = o.dataset.v;
+    document.querySelectorAll(`.opt[data-k="${o.dataset.k}"]`).forEach(x => x.classList.toggle('on', x === o));
+  });
+  const dz = $('#dz'), fi = $('#fi');
+  dz.onclick = () => fi.click();
+  dz.ondragover = e => { e.preventDefault(); dz.classList.add('on'); };
+  dz.ondragleave = () => dz.classList.remove('on');
+  dz.ondrop = e => { e.preventDefault(); dz.classList.remove('on'); upload([...e.dataTransfer.files]); };
+  fi.onchange = () => upload([...fi.files]);
+  let n = P.inputs.length;
+  async function upload(files) {
+    for (const f of files.filter(f => f.type.startsWith('video/') || /\.(mp4|mov|mkv|webm)$/i.test(f.name))) {
+      const el = document.createElement('span'); el.className = 'f'; $('#fl').append(el);
+      await new Promise((ok, bad) => {
+        const x = new XMLHttpRequest();
+        x.open('PUT', `/api/projects/${encodeURIComponent(P.name)}/upload?i=${n++}&file=${encodeURIComponent(f.name)}`);
+        x.upload.onprogress = e => el.textContent = `⏳ ${f.name} ${Math.round(e.loaded / e.total * 100)}%`;
+        x.onload = () => { el.textContent = '✅ ' + f.name; ok(); };
+        x.onerror = () => { el.textContent = '❌ ' + f.name; bad(); };
+        x.send(f);
+      }).catch(() => {});
+    }
+    $('#go').disabled = !$('#fl').children.length;
+  }
+  $('#go').onclick = async () => {
+    ['title', 'account', 'end', 'notes'].forEach(k => b[k] = $('#' + k).value.trim());
+    $('#go').disabled = true; $('#go').textContent = 'أجهّز المقاطع…';
+    try {
+      await post(`/api/projects/${encodeURIComponent(P.name)}/brief`, b);
+      await post(`/api/projects/${encodeURIComponent(P.name)}/start`, {from: 'transcribe'});
+      project(P.name);
+    } catch (e) { alert(e.message); $('#go').disabled = false; $('#go').textContent = 'ابدأ المونتاج 🎬'; }
+  };
+}
+
+// صفحة التقدم المباشر
+async function progress(P) {
+  const N = encodeURIComponent(P.name);
+  const stages = await api(`/api/projects/${N}/stages`);
+  $('#app').innerHTML = `
+    <h1>${esc(P.name)}</h1><p class="sub" id="msg"></p>
+    <div class="two">
+      <div>
+        <div class="box"><h2>المراحل</h2><ul class="steps" id="steps"></ul>
+          <div id="actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"></div></div>
+      </div>
+      <div>
+        <div class="box" id="result" hidden></div>
+        <div class="box"><h2>سجل العمل</h2><div class="log" id="log"></div>
+          <div class="ask"><textarea id="ask" placeholder="اطلب تعديل… مثال: كبّر الكابشن شوي، واحذف أول ٣ ثواني"></textarea>
+          <button class="btn" id="send">نفّذ</button></div></div>
+      </div>
+    </div>`;
+  let since = 0, lastKey = '';
+  $('#send').onclick = async () => {
+    const t = $('#ask').value.trim(); if (!t) return;
+    try { await post(`/api/projects/${N}/ask`, {text: t}); $('#ask').value = ''; tick(); } catch (e) { alert(e.message); }
+  };
+  async function tick() {
+    let p; try { p = await api(`/api/projects/${N}`); } catch { return; }
+    const st = p.status, idx = stages.findIndex(s => s[0] === st.stage);
+    $('#msg').textContent = st.msg || '';
+    $('#steps').innerHTML = stages.map(([k, t], i) => {
+      let c = i < idx || st.stage === 'done' ? 'done' : i === idx ? (st.state === 'error' ? 'err' : st.state === 'run' ? 'now' : 'done') : '';
+      return `<li class="${c}"><i>${c === 'done' ? '✓' : c === 'err' ? '!' : i + 1}</i>${t}</li>`;
+    }).join('');
+    const act = $('#actions');
+    const key = st.state + p.running;
+    if (key !== lastKey) {
+      lastKey = key;
+      act.innerHTML = '';
+      const b = (t, f, g) => { const e = document.createElement('button'); e.className = 'btn' + (g ? ' ghost' : ''); e.textContent = t; e.onclick = f; act.append(e); };
+      if (!p.running && st.state === 'error') b('أعد المحاولة من هنا', () => post(`/api/projects/${N}/start`, {from: st.stage === 'upload' ? 'transcribe' : st.stage}).then(tick).catch(e => alert(e.message)));
+      if (!p.running) b('↩️ تراجع', () => post(`/api/projects/${N}/undo`).then(() => alert('رجّعت آخر نسخة — اضغط «أعد التصدير»')).catch(e => alert(e.message)), 1);
+      if (!p.running && st.stage === 'done') b('أعد التصدير', () => post(`/api/projects/${N}/start`, {from: 'preview'}).then(tick), 1);
+      if (p.outputs.length) b('📂 افتح المجلد', () => post(`/api/projects/${N}/open`), 1);
+    }
+    $('#send').disabled = p.running;
+    const r = $('#result');
+    const prevKey = (p.outputs.join() || '') + (p.preview || '') + st.stage;
+    if (r.dataset.k !== prevKey) {
+      r.dataset.k = prevKey;
+      const main = p.outputs.find(o => o.includes('تيك')) || p.outputs[0];
+      if (main && st.stage === 'done') {
+        r.hidden = false; setTimeout(() => coursePop('done'), 2500);
+        r.innerHTML = `<h2>الفيديو جاهز 🎬</h2><video controls src="/files/${N}/out/${encodeURIComponent(main)}?v=${Date.now()}"></video>
+          <div class="outs">${p.outputs.map(o => `<a href="/files/${N}/out/${encodeURIComponent(o)}?download=1"><span>${esc(o)}</span><span>⬇️ تحميل</span></a>`).join('')}</div>`;
+      } else if (p.preview) {
+        r.hidden = false;
+        r.innerHTML = `<h2>المعاينة</h2><img class="prev" src="/files/${N}/preview.jpg?v=${Date.now()}">`;
+      }
+    }
+    const lg = await api(`/api/projects/${N}/log?since=${since}`).catch(() => []);
+    if (lg.length) {
+      const box = $('#log'), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+      lg.forEach(e => { since = Math.max(since, e.t); const d = document.createElement('div'); d.className = e.who; d.textContent = e.text; box.append(d); });
+      if (atEnd) box.scrollTop = box.scrollHeight;
+    }
+  }
+  tick(); timer = setInterval(tick, 2000);
+}
+
+// ─────────── بوب الدورة ───────────
+function coursePop(why) {
+  let last = 0; try { last = +localStorage.getItem('asrarPop') || 0; } catch {}
+  if (why !== 'done' && Date.now() - last < 864e5) return;   // مرة باليوم، ودايم بعد ما يجهز فيديو
+  if ($('.pop')) return;
+  try { localStorage.setItem('asrarPop', Date.now()); } catch {}
+  const d = document.createElement('div'); d.className = 'pop';
+  d.innerHTML = `<div class="in"><button class="x" aria-label="إغلاق">×</button>
+    <span class="tg">${why === 'done' ? 'مبروك فيديوك جاهز 🎬' : 'من صانع أسرار ستوديو'}</span>
+    <h3>خلّ محتواك <b>يبيع</b> لك</h3>
+    <p>من 45 ريال إلى +300 ألف ريال مبيعات — تعلّم السيستم كامل لبيع المنتجات الرقمية من الصفر.</p>
+    <ul><li>اختيار منتجك الأول بدون رأس مال</li><li>بناء متجرك على سلة أو زد</li><li>التسويق بتيك توك وإنستقرام وجلب العملاء يومياً</li><li>بكج مجاني: +24 منتج رقمي جاهز للبيع</li></ul>
+    <div style="margin:-8px 0 16px;color:var(--gold2);font-weight:900">الدورة كاملة (11 جزء) بـ 49 ريال فقط</div>
+    <a class="btn" href="https://asrar-digital.com/course" target="_blank" rel="noopener">اكتشف الدورة ←</a>
+    <button class="later">لاحقاً</button></div>`;
+  d.onclick = e => { if (e.target === d || e.target.matches('.x,.later')) d.remove(); };
+  document.body.append(d);
+}
+setTimeout(() => location.pathname === '/' && coursePop(), 6000);
+
+route();
+</script>
+</body>
+</html>

@@ -340,4 +340,6 @@ if __name__ == '__main__':
     elif c == 'preview': preview(a[1], a[2:])
     elif c == 'render': render(a[1])
     elif c == 'path': print(HOME / 'projects' / a[1])
+    elif c == 'serve':
+        import server; server.serve(open_browser='--no-open' not in a)
     else: print(__doc__)
