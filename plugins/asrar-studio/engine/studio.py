@@ -249,13 +249,16 @@ def sync(name):
         src = Path(b['file'])
         if not src.is_absolute(): src = p / src
         dst = f'broll_{i}.mp4'
-        args = ['-ss', str(b.get('from', 0)), '-t', str(b['b'] - b['a'] + 0.3), '-i', src, '-an']
+        if src.suffix.lower() in ('.jpg', '.jpeg', '.png', '.webp'):   # صورة منتج → لقطة ثابتة بطول العنصر
+            args = ['-loop', '1', '-framerate', str(FPS), '-t', str(b['b'] - b['a'] + 0.3), '-i', src]
+        else:
+            args = ['-ss', str(b.get('from', 0)), '-t', str(b['b'] - b['a'] + 0.3), '-i', src, '-an']
         vf = [f"crop={b['crop']}"] if b.get('crop') else []
         if b.get('blur'):  # [x,y,w,h] privacy blur
             x, y, w, h = b['blur']
             vf = [f'split[m][c];[c]crop={w}:{h}:{x}:{y},boxblur=18:4[bl];[m][bl]overlay={x}:{y}' + (',' + vf[0] if vf else '')]
         vf.append('scale=1080:-2:flags=lanczos')
-        ff(*args, '-vf', ','.join(vf), '-c:v', 'libx264', '-crf', '14', WORK / 'public' / dst)
+        ff(*args, '-vf', ','.join(vf), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', WORK / 'public' / dst)
         b['src'] = dst
     json.dump(tl, open(WORK / 'src' / 'timeline.json', 'w', encoding='utf-8'), ensure_ascii=False)
     return p, tl

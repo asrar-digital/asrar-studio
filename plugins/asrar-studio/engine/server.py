@@ -89,7 +89,8 @@ def project_info(name):
             'preview': 'preview.jpg' if (p / 'preview.jpg').exists() else None,
             'inputs': sorted(f.name for f in (p / 'inputs').glob('*')) if (p / 'inputs').exists() else [],
             'mtime': (p / 'status.json').stat().st_mtime if (p / 'status.json').exists() else p.stat().st_mtime,
-            'running': name in JOBS}
+            'running': name in JOBS, 'scripts': rj(p / 'scripts.json', []),
+            'product': {k: v for k, v in rj(p / 'product.json', {}).items() if k != 'text'}}
 
 
 # ───────────────────────── Claude (headless) ─────────────────────────
@@ -303,6 +304,79 @@ def make_clips(name, ids):
     return made
 
 
+# ───────────────────────── إعلان من رابط ─────────────────────────
+UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36',
+      'Accept-Language': 'ar,en;q=0.8'}
+
+
+def fetch(url, limit=4_000_000):
+    import urllib.request
+    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=25) as r:
+        return r.read(limit), r.headers.get_content_charset() or 'utf-8'
+
+
+def read_product(name, url):
+    """يقرأ صفحة المنتج: الاسم والوصف والسعر والصور → product.json + assets/"""
+    import html as H
+    p = pdir(name)
+    raw, cs = fetch(url)
+    s = raw.decode(cs, 'replace')
+    def meta(k):
+        return (re.search(rf'<meta[^>]+(?:property|name)=["\']{k}["\'][^>]+content=["\']([^"\']+)', s, re.I) or
+                re.search(rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']{k}["\']', s, re.I))
+    g = lambda m: H.unescape(m.group(1)).strip() if m else ''
+    info = {'url': url, 'title': g(meta('og:title')) or g(re.search(r'<title[^>]*>([^<]+)', s, re.I)),
+            'description': g(meta('og:description')) or g(meta('description')), 'price': g(meta('product:price:amount')),
+            'currency': g(meta('product:price:currency')), 'images': []}
+    imgs = [g(meta('og:image'))]
+    for blk in re.findall(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', s, re.S | re.I):   # بيانات المنتج المنظمة
+        try:
+            d = json.loads(blk.strip())
+        except Exception:
+            continue
+        for o in (d if isinstance(d, list) else d.get('@graph', [d])):
+            if not isinstance(o, dict) or 'Product' not in str(o.get('@type')): continue
+            info['title'] = o.get('name') or info['title']
+            info['description'] = H.unescape(re.sub('<[^>]+>', ' ', str(o.get('description') or ''))).strip() or info['description']
+            off = o.get('offers') or {}
+            off = off[0] if isinstance(off, list) and off else off
+            if isinstance(off, dict):
+                info['price'] = str(off.get('price') or off.get('lowPrice') or info['price'])
+                info['currency'] = off.get('priceCurrency') or info['currency']
+            im = o.get('image') or []
+            imgs += [x if isinstance(x, str) else (x or {}).get('url', '') for x in (im if isinstance(im, list) else [im])]
+    imgs += re.findall(r'<img[^>]+(?:data-src|src)=["\']([^"\']+\.(?:jpe?g|png|webp)[^"\']*)', s, re.I)
+    body = re.sub(r'<(script|style|noscript)[\s\S]*?</\1>', ' ', s, flags=re.I)
+    info['text'] = re.sub(r'\s+', ' ', H.unescape(re.sub(r'<[^>]+>', ' ', body)))[:4000]
+    (p / 'assets').mkdir(exist_ok=True)
+    seen = set()
+    for u in imgs:
+        if len(info['images']) >= 6: break
+        u = urllib.parse.urljoin(url, (u or '').strip())
+        if not u.startswith('http') or u in seen or re.search(r'logo|icon|sprite|avatar|payment|badge', u, re.I): continue
+        seen.add(u)
+        try:
+            data, _ = fetch(u, 8_000_000)
+            if len(data) < 15_000: continue          # أيقونات وصور صغيرة
+            raw_f = p / 'assets' / f'_raw{len(info["images"])}'
+            raw_f.write_bytes(data)
+            out = p / 'assets' / f'product_{len(info["images"]) + 1}.jpg'
+            S.ff('-i', raw_f, '-vf', 'scale=1080:-2', '-q:v', '3', out); raw_f.unlink()
+            info['images'].append(f'assets/{out.name}')
+        except BaseException:
+            continue
+    wj(p / 'product.json', info)
+    return info
+
+
+def scripts_task(name):
+    return ('هذا منتج المستخدم (product.json — اقرأه، وشوف صوره في assets/). المطلوب: 3 سكربتات إعلان قصيرة يصوّرها المستخدم بنفسه.\n'
+            'الزوايا: ١) مشكلة ← حل  ٢) قصة شخصية  ٣) صدمة بالأرقام/النتيجة.\n'
+            'كل سكربت: لهجة سعودية طبيعية، 25-40 ثانية قراءة (70-110 كلمة)، أول جملة هوك يوقف التمرير، يذكر السعر إذا موجود، ويختم بدعوة «الرابط في البايو». لا تخترع ولا تقرّب أي رقم أو ادعاء — استخدم أرقام الصفحة حرفياً.\n'
+            'اكتب scripts.json بمجلد المشروع: [{"id":1,"angle":"مشكلة ← حل","score":0-100,"hook":"أول جملة","script":"النص كامل جمل قصيرة كل جملة بسطر",'
+            '"shots":["وش يصوّر/يعرض في كل جزء"]}] مرتبة من الأعلى درجة. كن صارم بالدرجة (قوة الهوك + الوضوح + الإقناع). لا تسوي أي شي ثاني.')
+
+
 def plan_task(name):
     b = rj(pdir(name) / 'brief.json', {})
     return (
@@ -313,6 +387,9 @@ def plan_task(name):
         '٣) اكتب timeline.json على توقيتات caps.json الجديدة.\n'
         '٤) شغّل preview واقرأ preview.jpg بنفسك وأصلح أي خلل.\n'
         'لا ترندر — السيرفر يرندر بعدك.'
+        + ('\n\nهذا **إعلان منتج** (product.json): استخدم صور المنتج من assets/ كـ broll ("file":"assets/product_1.jpg") '
+           'على الكلمات اللي تتكلم عنه، حط ملصق السعر لما يذكره، وخاتمة endCard فيها اسم المنتج وزر «اطلب الحين — الرابط في البايو».'
+           if (pdir(name) / 'product.json').exists() else '')
     )
 
 
@@ -575,6 +652,29 @@ class H(BaseHTTPRequestHandler):
                     finally:
                         with LOCK: JOBS.pop(name, None)
                 threading.Thread(target=dl, daemon=True).start()
+                return self.send_json({'ok': True})
+            if act == 'product':   # إعلان من رابط: قراءة المنتج + 3 سكربتات
+                url = (self.body_json().get('url') or '').strip()
+                if not re.match(r'^https?://', url): return self.send_json({'error': 'حط رابط المنتج كامل'}, 400)
+                if name in JOBS: return self.send_json({'error': 'المشروع شغّال الحين'}, 409)
+                with LOCK: JOBS[name] = True
+                def ad():
+                    try:
+                        set_status(name, 'upload', 'run', 'أقرأ صفحة المنتج…'); log(name, 'أقرأ: ' + url)
+                        info = read_product(name, url)
+                        log(name, f'✅ المنتج: {info["title"][:60]} · {info["price"]} {info["currency"]} · {len(info["images"])} صور')
+                        set_status(name, 'upload', 'run', 'Claude يكتب 3 سكربتات…')
+                        run_claude(name, scripts_task(name))
+                        if not rj(p / 'scripts.json'): raise Fail('Claude ما كتب السكربتات')
+                        log(name, '✅ السكربتات جاهزة — اختر واحد وصوّر')
+                        set_status(name, 'upload', 'idle', 'اختر سكربت وصوّر')
+                    except Exception as e:
+                        msg = str(e) if isinstance(e, (Fail, RuntimeError)) else 'ما قدرت أقرأ الصفحة — جرّب رابط المنتج نفسه'
+                        log(name, '❌ ' + msg, 'error'); log(name, traceback.format_exc()[-500:], 'debug')
+                        set_status(name, 'upload', 'idle', msg, error=msg)
+                    finally:
+                        with LOCK: JOBS.pop(name, None)
+                threading.Thread(target=ad, daemon=True).start()
                 return self.send_json({'ok': True})
             if act == 'clips_make':
                 ids = [int(i) for i in self.body_json().get('ids', [])]
