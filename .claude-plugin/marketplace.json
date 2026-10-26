@@ -1,0 +1,15 @@
+{
+  "name": "asrar",
+  "description": "أدوات أسرار الرقمية لصنّاع المحتوى",
+  "owner": {
+    "name": "Asrar Digital",
+    "url": "https://asrar-digital.com"
+  },
+  "plugins": [
+    {
+      "name": "asrar-studio",
+      "source": "./plugins/asrar-studio",
+      "description": "أسرار ستوديو: مونتاج احترافي لمقاطعك بالذكاء الاصطناعي (قص السكتات، كابشن عربي، موشن جرافيك، باقة النشر)"
+    }
+  ]
+}

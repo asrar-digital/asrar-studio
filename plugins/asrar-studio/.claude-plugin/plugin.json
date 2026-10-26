@@ -1,0 +1,13 @@
+{
+  "name": "asrar-studio",
+  "version": "0.1.0",
+  "description": "أسرار ستوديو: مونتاج احترافي لمقاطعك بالذكاء الاصطناعي — قص السكتات، تفريغ بتوقيت الكلمة، كابشن عربي، موشن جرافيك، وباقة نشر جاهزة.",
+  "author": {
+    "name": "Asrar Digital",
+    "url": "https://asrar-digital.com"
+  },
+  "homepage": "https://studio.asrar-digital.com",
+  "repository": "https://github.com/asrar-digital/asrar-studio",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "keywords": ["video", "montage", "arabic", "captions", "motion-graphics", "tiktok", "reels"]
+}
