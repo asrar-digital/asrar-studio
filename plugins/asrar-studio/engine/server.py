@@ -196,14 +196,27 @@ def pipeline(name, from_stage='transcribe', skip=()):
             run_claude(name, clips_task(name))
             n = len(rj(p / 'clips.json', []))
             if not n: raise Fail('Claude ما لقى مقاطع (clips.json)')
-            log(name, f'✅ لقيت {n} مقاطع — اختر اللي تبيها')
-            set_status(name, 'done', 'ok', 'اختر المقاطع اللي تبيها ✂️')
+            bb = rj(p / 'brief.json', {})
+            if bb.get('picker') == 'claude':
+                top = [c['id'] for c in rj(p / 'clips.json', [])[:int(bb.get('count') or 5)]]
+                log(name, f'✅ لقيت {n} مقاطع — Claude اختار أقوى {len(top)} وبدأ يصنعها')
+                set_status(name, 'done', 'ok', f'Claude اختار {len(top)} مقاطع ✂️')
+                make_clips(name, top)
+            else:
+                log(name, f'✅ لقيت {n} مقاطع — اختر اللي تبيها')
+                set_status(name, 'done', 'ok', 'اختر المقاطع اللي تبيها ✂️')
             return
         if 'cut' in order:
             set_status(name, 'cut', 'run', 'أقص السكتات…')
             if not (p / 'edit.json').exists(): wj(p / 'edit.json', {})
             guarded(S.cut, name)
             c = rj(p / 'caps.json', {}); log(name, f'✅ القص خلص: صار الفيديو {c.get("total", 0):.1f} ثانية')
+        if 'plan' in order and rj(p / 'brief.json', {}).get('editor') == 'self':
+            b0 = rj(p / 'brief.json', {})
+            if not (p / 'timeline.json').exists():
+                wj(p / 'timeline.json', {'title': b0.get('title') or name, 'style': b0.get('style', 'editorial')})
+            log(name, '✂️ وضع «أمنتجه بنفسي»: قصّيت السكتات وركّبت الكابشن — كمّل التعديل من الاستوديو')
+            order = [k for k in order if k != 'plan']
         if 'plan' in order:
             set_status(name, 'plan', 'run', 'Claude يخطط المونتاج…')
             log(name, 'سلّمت الخطة لـ Claude — تقدر تتابع رسايله هنا')
@@ -254,12 +267,18 @@ def extra_aspects(name):
         log(name, f'✅ نسخة {lb}')
 
 
-def clips_task(name):
-    return ('هذا فيديو طويل (بودكاست/بث/شرح). المطلوب: رشّح أقوى 4-8 مقاطع قصيرة تصلح تيك توك/ريلز.\n'
+def clips_task(name, again=False):
+    b = rj(pdir(name) / 'brief.json', {})
+    n = int(b.get('count') or 5)
+    lo, hi = (b.get('dur') or '20-60').split('-')
+    old = rj(pdir(name) / 'clips.json', []) if again else []
+    return ('هذا فيديو طويل (بودكاست/بث/شرح). المطلوب: رشّح أقوى ' + str(n) + ' مقاطع قصيرة تصلح تيك توك/ريلز (ورشّح ' + str(n + 2) + ' عشان يكون فيه خيار).\n'
             '١) اقرأ words.json (كلمات + توقيتات بالثواني من الفيديو الأصلي src.mp4).\n'
-            '٢) كل مقطع 20-60 ثانية، يبدأ بجملة قوية (هوك) وينتهي بفكرة مكتملة — لا تقطع بنص جملة.\n'
+            f'٢) كل مقطع {lo}-{hi} ثانية، يبدأ بجملة قوية (هوك) وينتهي بفكرة مكتملة — لا تقطع بنص جملة.\n'
+            + ('**مقاطع جديدة غير هذي** (لا تكررها ولا تتداخل معها): ' + json.dumps([[c['a'], c['b']] for c in old]) + '\n' if old else '') +
+            'لكل مقطع "tags": 2-3 وسوم قصيرة من: «يبدأ بسؤال»، «فيها رقم»، «فيها قصة»، «حماس»، «كلها نصيحة»، «سريع وحماسي».\n'
             '٣) اكتب clips.json بمجلد المشروع: [{"id":1,"a":ثانية_البداية,"b":ثانية_النهاية,"score":0-100,'
-            '"title":"عنوان قصير جذاب","hook":"أول جملة","why":"ليش بينتشر بسطر"}] مرتبة من الأعلى درجة.\n'
+            '"title":"عنوان قصير جذاب","hook":"أول جملة","why":"ليش بينتشر بسطر","tags":["…"]}] مرتبة من الأعلى درجة.\n'
             'الدرجة = قوة الهوك + وضوح الفكرة + قابلية المشاركة. كن صارم بالدرجات. لا تسوي أي شي ثاني.')
 
 
@@ -394,6 +413,71 @@ def scripts_task(name):
             '"shots":["وش يصوّر/يعرض في كل جزء"]}] مرتبة من الأعلى درجة. كن صارم بالدرجة (قوة الهوك + الوضوح + الإقناع). لا تسوي أي شي ثاني.')
 
 
+def timeline_assets(name):
+    """صور التايم لاين: موجة الصوت وشريط لقطات من main.mp4 (تتجدد إذا تغيّر)."""
+    p = pdir(name); src = p / 'main.mp4'
+    if not src.exists(): return {}
+    out = {}
+    tot = rj(p / 'caps.json', {}).get('total') or S.probe_dur(src) or 1
+    aud = p / 'voice.wav' if (p / 'voice.wav').exists() else src
+    for f, inp, args in (('wave.png', aud, ['-filter_complex', 'aformat=channel_layouts=mono,showwavespic=s=2000x120:colors=#7bd88f:scale=sqrt', '-frames:v', '1']),
+                         ('strip.jpg', src, ['-vf', f'fps=20/{tot:.3f},scale=96:-2,tile=20x1', '-frames:v', '1', '-q:v', '5'])):
+        t = p / f
+        if not t.exists() or t.stat().st_mtime < src.stat().st_mtime:
+            try:
+                S.ff('-i', inp, *args, t)
+            except BaseException:
+                continue
+        out[f.split('.')[0]] = f'{f}?v={int(t.stat().st_mtime)}'
+    return out
+
+
+def cut_range(name, a, b):
+    """يحذف جزء من الفيديو النهائي (ثواني النهائي) ← مدى بالمصدر بـ edit.json + يزحزح عناصر المونتاج."""
+    p = pdir(name); caps = rj(p / 'caps.json', {})
+    keep, acc, drops = caps.get('keep') or [], 0.0, []
+    for s0, e0 in keep:                       # تحويل وقت النهائي ← وقت المصدر
+        ln = e0 - s0
+        lo, hi = max(a, acc), min(b, acc + ln)
+        if hi > lo: drops.append([round(s0 + lo - acc, 3), round(s0 + hi - acc, 3)])
+        acc += ln
+    if not drops: raise Fail('ما لقيت هالجزء')
+    snapshot(name)
+    e = rj(p / 'edit.json', {}); e['drop'] = (e.get('drop') or []) + drops; wj(p / 'edit.json', e)
+    d = b - a
+    def mv(t):
+        return t if t <= a else (a if t < b else round(t - d, 3))
+    tl = rj(p / 'timeline.json', {})
+    for k in ('stickers', 'hero', 'broll', 'strike', 'chapters', 'fix'):
+        keepers = []
+        for el in tl.get(k, []):
+            for f in ('at', 'until', 'a', 'b'):
+                if f in el: el[f] = mv(el[f])
+            st, en = el.get('at', el.get('a', 0)), el.get('until', el.get('b', el.get('at', el.get('a', 0)) + 1))
+            if en - st > 0.2 or k == 'chapters': keepers.append(el)
+        tl[k] = keepers
+    if tl.get('cuts'): tl['cuts'] = sorted({mv(t) for t in tl['cuts']})
+    wj(p / 'timeline.json', tl)
+    (p / '.dirty_cut').touch()
+    return d
+
+
+def preview_tl(name):
+    """الخطة للمعاينة الحية: مثل sync بالرندر (الكلمات + المدة) بدون نسخ ملفات."""
+    p = pdir(name)
+    tl = rj(p / 'timeline.json', {}) or {}
+    caps = rj(p / 'caps.json', {})
+    tl['main_end'] = caps.get('total', 0)
+    tl['total'] = caps.get('total', 0) + (tl.get('endCard') or {}).get('dur', 0)
+    tl['words'] = caps.get('words', [])
+    if (p / 'main.mp4').exists() and not (p / 'last.png').exists():
+        try:
+            S.ff('-sseof', '-0.1', '-i', p / 'main.mp4', '-frames:v', '1', p / 'last.png')
+        except BaseException:
+            pass
+    return tl
+
+
 def plan_task(name):
     b = rj(pdir(name) / 'brief.json', {})
     return (
@@ -425,7 +509,11 @@ def build_source(name):
     ins = sorted((p / 'inputs').glob('*'))
     if not ins:
         raise Fail('ما رفعت أي مقطع')
-    S.new(name, [str(f) for f in ins], fit=rj(p / 'brief.json', {}).get('frame') == 'fit')
+    if rj(p / 'brief.json', {}).get('mode') == 'clips' and len(ins) == 1:
+        # فيديو طويل: لا نحوّله كامل — نفرّغه كما هو، ونحوّل بس المقاطع المختارة (أسرع بكثير)
+        S.ff('-i', ins[0], '-map', '0:v:0', '-map', '0:a:0', '-c', 'copy', '-movflags', '+faststart', p / 'src.mp4')
+    else:
+        S.new(name, [str(f) for f in ins], fit=rj(p / 'brief.json', {}).get('frame') == 'fit')
     S.ff('-ss', '1', '-i', p / 'src.mp4', '-frames:v', '1', '-vf', 'scale=360:-2', p / 'thumb.jpg')
 
 
@@ -487,6 +575,12 @@ class H(BaseHTTPRequestHandler):
         try:
             if path in ('/', '/index.html') or path.startswith('/p/'):
                 return self.send_file(WEB / 'index.html')
+            if path == '/player.js':
+                try:
+                    S.build_player()
+                except BaseException:
+                    pass
+                return self.send_file(S.WORK / 'player.js')
             if path.startswith('/fonts/'):
                 return self.send_file(ENGINE / 'template' / 'public' / 'fonts' / Path(path).name)
             if path.startswith('/web/'):
@@ -504,12 +598,21 @@ class H(BaseHTTPRequestHandler):
                 if what is None: return self.send_json(project_info(name))
                 if what == 'log': return self.send_json(read_log(name, float((q.get('since') or ['0'])[0])))
                 if what == 'stages': return self.send_json(STAGES)
+                if what == 'pvtl':
+                    return self.send_json(preview_tl(name))
                 if what == 'doc':
                     p = pdir(name)
                     return self.send_json({'caps': rj(p / 'caps.json', {}), 'timeline': rj(p / 'timeline.json', {}),
                                            'notes': rj(p / 'notes.json', []), 'edit': rj(p / 'edit.json', {}),
                                            'clips': rj(p / 'clips.json', []), 'publish': rj(p / 'publish.json', None),
+                                           'tl': timeline_assets(name),
                                            'dirty':(p / '.dirty_cut').exists() or (p / '.dirty_tl').exists()})
+            m = re.match(r'^/pvabs/([^/]+)$', path)
+            if m:   # لقطات بمسار كامل بالمعاينة — بس الملفات المذكورة بخطة المشروع
+                want = (q.get('p') or [''])[0]
+                tl = rj(pdir(m.group(1)) / 'timeline.json', {}) or {}
+                if want not in [b.get('file') for b in tl.get('broll', [])]: return self.send_json({'error': 'not allowed'}, 403)
+                return self.send_file(Path(want))
             m = re.match(r'^/files/([^/]+)/(.+)$', path)
             if m:
                 f = (pdir(m.group(1)) / m.group(2)).resolve()
@@ -608,8 +711,11 @@ class H(BaseHTTPRequestHandler):
                 if b.get('hot') is not None:
                     hot = set(e.get('hot', [])); (hot.add if b['hot'] else hot.discard)(b['to']); e['hot'] = sorted(hot)
                 wj(p / 'edit.json', e); (p / '.dirty_cut').touch(); return self.send_json({'ok': True})
-            if act == 'timeline':  # حفظ العناصر بعد التعديل/الحذف
-                snapshot(name); wj(p / 'timeline.json', self.body_json()); (p / '.dirty_tl').touch()
+            if act == 'timeline':  # حفظ الخطة من المحرر (حفظ تلقائي)
+                b = self.body_json(); quiet = b.pop('_quiet', False)
+                if not quiet: snapshot(name)
+                for k in ('words', 'main_end', 'total'): b.pop(k, None)
+                wj(p / 'timeline.json', b); (p / '.dirty_tl').touch()
                 return self.send_json({'ok': True})
             if act == 'rebuild':   # طبّق التعديلات اليدوية وأعد التصدير (بدون Claude)
                 if name in JOBS: return self.send_json({'error': 'المشروع شغّال الحين'}, 409)
@@ -697,6 +803,39 @@ class H(BaseHTTPRequestHandler):
                     finally:
                         with LOCK: JOBS.pop(name, None)
                 threading.Thread(target=ad, daemon=True).start()
+                return self.send_json({'ok': True})
+            if act == 'annotate':   # رسم على الفيديو + ملاحظة → Claude يشوفه
+                import base64
+                b = self.body_json(); tt = round(float(b.get('t') or 0), 2)
+                d = p / 'annotations'; d.mkdir(exist_ok=True)
+                fn = f'mark_{int(time.time())}.png'
+                (d / fn).write_bytes(base64.b64decode((b.get('png') or '').split(',')[-1]))
+                fr = d / fn.replace('mark_', 'frame_')
+                try:
+                    S.ff('-ss', f'{tt}', '-i', p / 'main.mp4', '-i', d / fn, '-filter_complex', '[1]scale=1080:1920[m];[0][m]overlay', '-frames:v', '1', fr)
+                except BaseException:
+                    pass
+                notes = rj(p / 'notes.json', [])
+                notes.append({'id': int(time.time() * 1000), 't': tt, 'done': False,
+                              'text': (b.get('text') or 'شوف الرسم').strip() + f' (الرسم على اللقطة: annotations/{fr.name} — افتحها وشوف وين أأشّر)'})
+                wj(p / 'notes.json', sorted(notes, key=lambda n: n['t']))
+                return self.send_json({'ok': True})
+            if act == 'cut':        # قص يدوي من التايم لاين
+                b = self.body_json(); a0, b0 = sorted([float(b.get('a', 0)), float(b.get('b', 0))])
+                if b0 - a0 < 0.1: return self.send_json({'error': 'حدد جزء أطول'}, 400)
+                if name in JOBS: return self.send_json({'error': 'المشروع شغّال الحين'}, 409)
+                d = cut_range(name, a0, b0); log(name, f'✂️ حذفت {d:.1f} ثانية ({a0:.1f}–{b0:.1f}) — اضغط «طبّق وأعد التصدير»', 'user')
+                return self.send_json({'ok': True, 'removed': d})
+            if act == 'clip_adjust':  # ±ثانيتين لبداية/نهاية مقطع مرشّح
+                b = self.body_json(); cl = rj(p / 'clips.json', [])
+                for c in cl:
+                    if c['id'] == int(b['id']):
+                        c['a'] = round(max(0, c['a'] + float(b.get('da', 0))), 2)
+                        c['b'] = round(max(c['a'] + 3, c['b'] + float(b.get('db', 0))), 2)
+                wj(p / 'clips.json', cl); return self.send_json({'ok': True})
+            if act == 'rescan':     # «هات غيرها»
+                if not claude_job(name, 'Claude يدوّر مقاطع ثانية…', clips_task(name, again=True)):
+                    return self.send_json({'error': 'المشروع شغّال الحين'}, 409)
                 return self.send_json({'ok': True})
             if act == 'clips_make':
                 ids = [int(i) for i in self.body_json().get('ids', [])]

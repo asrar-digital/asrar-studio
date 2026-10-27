@@ -215,13 +215,31 @@ def make_sfx():
 def setup():
     WORK.mkdir(parents=True, exist_ok=True)
     pkg = {'name': 'asrar-studio-engine', 'private': True,
-           'dependencies': {'@remotion/cli': REMOTION, 'remotion': REMOTION, 'react': '18.3.1', 'react-dom': '18.3.1'}}
+           'dependencies': {'@remotion/cli': REMOTION, 'remotion': REMOTION, '@remotion/player': REMOTION, 'react': '18.3.1', 'react-dom': '18.3.1'}}
     json.dump(pkg, open(WORK / 'package.json', 'w'), indent=1)
     npm = shutil.which('npm') or shutil.which('npm.cmd') or 'npm'
     print('… أحمّل محرّك الرسم (مرة وحدة، ~500 ميقا)')
     run([npm, 'install', '--no-audit', '--no-fund', '--loglevel=error'], cwd=WORK, shell=os.name == 'nt')
     make_sfx()
+    build_player()
     print('✅ المحرّك جاهز')
+
+
+def build_player(force=False):
+    """يجمّع المعاينة الحية (نفس القالب) لملف واحد يشتغل بالمتصفح: .engine/player.js"""
+    out = WORK / 'player.js'
+    src_dir = ENGINE / 'template'
+    newest = max(f.stat().st_mtime for f in src_dir.rglob('*.ts*'))
+    if out.exists() and out.stat().st_mtime > newest and not force:
+        return out
+    pv = WORK / 'pvsrc'
+    shutil.rmtree(pv, ignore_errors=True)
+    shutil.copytree(src_dir / 'src', pv / 'src'); shutil.copytree(src_dir / 'player', pv / 'player')
+    (pv / 'src' / 'timeline.json').write_text('{}', encoding='utf-8')
+    esb = WORK / 'node_modules' / '.bin' / ('esbuild.cmd' if os.name == 'nt' else 'esbuild')
+    run([esb, 'pvsrc/player/entry.tsx', '--bundle', '--minify', '--format=iife', '--jsx=automatic', '--loader:.json=json',
+         '--define:process.env.NODE_ENV="production"', f'--outfile={out}', '--log-level=error'], cwd=WORK, shell=os.name == 'nt')
+    return out
 
 
 def sync(name):
@@ -289,6 +307,18 @@ def mix_audio(p, tl):
     for h in tl.get('hero', []): ev.append(('ding', h['a'] + .1))
     for c in tl.get('chapters', [])[1:]: ev.append(('whoosh', c['at']))
     if tl.get('endCard'): ev.append(('ding', tl['main_end'] + .2))
+    for it in tl.get('items', []):           # الرسومات الجديدة: صوت تلقائي/مخصص/بدون
+        snd = it.get('sfx', 'auto')
+        if snd == 'none': continue
+        ev.append((snd if snd in ('whoosh', 'thud', 'pop', 'ding', 'tick') else 'whoosh', it['a']))
+        if snd == 'auto':
+            for k, pt in enumerate(it.get('points') or it.get('rows') or it.get('items') or []):
+                tt = pt.get('t') if isinstance(pt, dict) else None
+                ev.append(('pop', tt if tt is not None else it['a'] + .5 + k * max(.5, (it['b'] - it['a'] - 1) / max(1, len(it.get('points') or it.get('rows') or it.get('items'))))))
+    if tl.get('sfx') is False: ev = []
+    for el in tl.get('stickers', []) + tl.get('hero', []) + tl.get('broll', []):
+        if el.get('sfx') == 'none':
+            ev = [e for e in ev if abs(e[1] - el.get('at', el.get('a', -9))) > .01 and abs(e[1] - el.get('a', -9) - .1) > .01]
     ev = [e for e in ev if 0 <= e[1] < total]
     ins, fc, L = ['-i', p / 'voice.wav'], '', ''
     for i, (k, t) in enumerate(ev, 1):
