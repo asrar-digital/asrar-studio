@@ -93,6 +93,23 @@ def project_info(name):
             'product': {k: v for k, v in rj(p / 'product.json', {}).items() if k != 'text'}}
 
 
+# ───────────────────────── الدعوات (تجربة مغلقة) ─────────────────────────
+import hashlib
+
+
+def invited():
+    hs = rj(ENGINE / 'invites.json', [])
+    return not hs or (rj(S.HOME / 'invite.json', {}) or {}).get('h') in hs
+
+
+def check_invite(code):
+    c = re.sub(r'\s+', '', (code or '').upper())
+    h = hashlib.sha256(('asrar-studio:' + c).encode()).hexdigest()
+    if h not in rj(ENGINE / 'invites.json', []): return False
+    S.HOME.mkdir(parents=True, exist_ok=True); wj(S.HOME / 'invite.json', {'h': h, 't': time.time()})
+    return True
+
+
 # ───────────────────────── Claude (headless) ─────────────────────────
 def find_claude():
     for c in ('claude', 'claude.cmd', 'claude.exe'):
@@ -475,7 +492,7 @@ class H(BaseHTTPRequestHandler):
             if path.startswith('/web/'):
                 return self.send_file(WEB / path[5:])
             if path == '/api/ping':
-                return self.send_json({'ok': True, 'app': 'asrar-studio', 'claude': bool(find_claude())})
+                return self.send_json({'ok': True, 'app': 'asrar-studio', 'claude': bool(find_claude()), 'invited': invited()})
             if path == '/api/projects':
                 PROJ.mkdir(parents=True, exist_ok=True)
                 items = [project_info(d.name) for d in PROJ.iterdir() if d.is_dir() and not d.name.startswith('.')]
@@ -522,6 +539,11 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
         try:
+            if path == '/api/invite':
+                ok = check_invite(self.body_json().get('code'))
+                return self.send_json({'ok': ok} if ok else {'error': 'الكود غير صحيح'}, 200 if ok else 403)
+            if not invited():
+                return self.send_json({'error': 'فعّل الاستوديو بكود الدعوة أول'}, 403)
             if path == '/api/projects':
                 b = self.body_json()
                 name = re.sub(r'[^\w؀-ۿ-]+', '-', (b.get('name') or 'مشروع').strip()).strip('-')[:40] or 'مشروع'

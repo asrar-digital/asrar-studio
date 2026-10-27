@@ -118,10 +118,24 @@ const post = (u, b) => api(u, {method: 'POST', headers: {'Content-Type': 'applic
 const STL = {upload: 'بانتظار المقاطع', transcribe: 'تفريغ', cut: 'قص', plan: 'Claude يخطط', preview: 'معاينة', render: 'تصدير', done: 'جاهز'};
 let timer = null;
 
-api('/api/ping').then(p => $('#cl').textContent = p.claude ? '● Claude متصل' : '○ Claude غير مثبت').catch(() => {});
+api('/api/ping').then(p => { $('#cl').textContent = p.claude ? '● Claude متصل' : '○ Claude غير مثبت'; if (!p.invited) gate(); }).catch(() => {});
+function gate() {
+  window.GATED = true; clearInterval(timer);
+  $('#app').innerHTML = `<div class="box" style="max-width:460px;margin:40px auto;text-align:center">
+    <div style="font-size:44px">🔑</div><h1>تجربة بالدعوة</h1>
+    <p class="sub">أسرار ستوديو الحين بتجربة مغلقة. حط كود الدعوة اللي وصلك عشان تفعّله.</p>
+    <input type="text" id="ic" dir="ltr" placeholder="ASRAR-XXXX-XXXX" style="text-align:center;font-size:20px;letter-spacing:2px">
+    <button class="btn" id="ib" style="width:100%;margin-top:12px">فعّل</button><div id="ie" class="err" hidden></div>
+    <p class="hint" style="margin-top:16px">ما عندك كود؟ اطلبه من قروب أسرار الرقمية على التليقرام.</p></div>`;
+  $('#ib').onclick = async () => {
+    try { await post('/api/invite', {code: $('#ic').value}); location.href = '/'; }
+    catch (e) { $('#ie').hidden = false; $('#ie').textContent = e.message; }
+  };
+  $('#ic').onkeydown = e => e.key === 'Enter' && $('#ib').click();
+}
 
 function route() {
-  clearInterval(timer);
+  clearInterval(timer); if (window.GATED) return gate();
   const m = location.pathname.match(/^\/p\/(.+)$/);
   m ? project(decodeURIComponent(m[1])) : library();
 }
@@ -131,6 +145,7 @@ function go(u) { history.pushState(0, '', u); route(); }
 // ─────────── المكتبة ───────────
 async function library() {
   const list = await api('/api/projects');
+  if (window.GATED) return;
   $('#app').innerHTML = `
     <h1>مشاريعك</h1><p class="sub">كل شي يشتغل على جهازك — ارفع مقاطعك و Claude يسوي المونتاج.</p>
     <div class="grid">
