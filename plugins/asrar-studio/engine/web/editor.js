@@ -152,10 +152,10 @@
       if (type === 'lines') return `<div class="fld"><label>${label}</label><textarea data-p="${path}" data-ty="lines">${esc((v || []).map(x => typeof x === 'string' ? x : x.text).join('\n'))}</textarea></div>`;
       if (type.startsWith('pick:')) return `<div class="fld"><label>${label}</label><div class="seg">${type.slice(5).split(',').map(x => { const [k, t] = x.split('='); return `<span data-p="${path}" data-pk="${k}" class="${v === k ? 'on' : ''}">${t}</span>`; }).join('')}</div></div>`;
       if (type === 'pts') return `<div class="fld"><label>${label}</label>${(v || []).map((p, j) => { p = typeof p === 'string' ? {text: p} : p;
-        return `<div class="sub"><div class="hd"><span>${j + 1}</span><b data-rm="${path}" data-j="${j}">حذف</b></div><div class="row2"><input type="text" data-p="${path}.${j}.text" data-ty="text" value="${esc(p.text)}">
+        return `<div class="esub"><div class="hd"><span>${j + 1}</span><b data-rm="${path}" data-j="${j}">حذف</b></div><div class="row2"><input type="text" data-p="${path}.${j}.text" data-ty="text" value="${esc(p.text)}">
           <input type="number" step=".1" data-p="${path}.${j}.t" data-ty="num" value="${p.t ?? ''}" placeholder="الوقت"></div></div>`; }).join('')}<button class="ib" data-addp="${path}">+ نقطة عند المؤشر</button></div>`;
       if (type.startsWith('objs:')) { const keys = type.slice(5).split(',').map(x => x.split('='));
-        return `<div class="fld"><label>${label}</label>${(v || []).map((p, j) => `<div class="sub"><div class="hd"><span>${j + 1}</span><b data-rm="${path}" data-j="${j}">حذف</b></div><div class="row2">
+        return `<div class="fld"><label>${label}</label>${(v || []).map((p, j) => `<div class="esub"><div class="hd"><span>${j + 1}</span><b data-rm="${path}" data-j="${j}">حذف</b></div><div class="row2">
           ${keys.map(([k, t]) => `<input type="text" placeholder="${t}" data-p="${path}.${j}.${k}" data-ty="text" value="${esc(p[k] ?? '')}">`).join('')}</div></div>`).join('')}
           <button class="ib" data-addo="${path}" data-keys="${keys.map(k => k[0]).join(',')}">+ إضافة</button></div>`; }
       return '';
@@ -242,7 +242,7 @@
         pane.innerHTML = `<p class="hint">اكتب لـ Claude وش تبي — أو ارسم على الفيديو (فوق) وأرسله. Claude يعدّل الخطة والمعاينة تتحدث.</p>
           <div class="fld"><textarea id="aiT" placeholder="مثال: عند هالثانية حط قائمة بالخطوات الثلاث اللي يقولها"></textarea></div>
           <div class="row2"><button class="ib" id="aiN">+ ملاحظة عند ${fmt(now())}</button><button class="btn" id="aiGo" style="padding:8px">نفّذ الحين</button></div>
-          <h4 style="margin:16px 0 8px">الملاحظات</h4>${(DOC.notes || []).map(n => `<div class="sub" style="${n.done ? 'opacity:.5' : ''}"><div class="hd"><span style="cursor:pointer" data-sk2="${n.t}">${fmt(n.t)}</span>${n.done ? '✅' : ''}</div>${esc(n.text)}</div>`).join('') || '<p class="hint">ما فيه</p>'}
+          <h4 style="margin:16px 0 8px">الملاحظات</h4>${(DOC.notes || []).map(n => `<div class="esub" style="${n.done ? 'opacity:.5' : ''}"><div class="hd"><span style="cursor:pointer" data-sk2="${n.t}">${fmt(n.t)}</span>${n.done ? '✅' : ''}</div>${esc(n.text)}</div>`).join('') || '<p class="hint">ما فيه</p>'}
           ${pend.length ? `<button class="btn" id="aiRun" style="width:100%;margin-top:8px">نفّذ ${pend.length} ملاحظات بـ Claude</button>` : ''}`;
         pane.querySelectorAll('[data-sk2]').forEach(s => s.onclick = () => seek(+s.dataset.sk2));
         $('#aiN').onclick = async () => { const t = $('#aiT').value.trim(); if (!t) return; await post(`/api/projects/${N}/note`, {t: now(), text: t}); DOC = await api(`/api/projects/${N}/doc`); drawPane(); };

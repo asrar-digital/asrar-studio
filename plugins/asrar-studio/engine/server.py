@@ -50,8 +50,28 @@ def status(name):
     return rj(pdir(name) / 'status.json', {'stage': 'upload', 'state': 'idle', 'msg': ''})
 
 
+TLS = threading.local()          # اسم المشروع للخيط الحالي (لنسبة التقدم)
+BASE = {}                        # نص المرحلة الأساسي لكل مشروع
+
+
+def _progress(kind, frac):
+    name = getattr(TLS, 'name', None)
+    if not name: return
+    st = status(name)
+    pct = int(frac * 100)
+    if st.get('pct') == pct: return
+    st['pct'] = pct; st['msg'] = f"{BASE.get(name) or st.get('msg', '').split(' — ')[0]} — {pct}%"
+    wj(pdir(name) / 'status.json', st)
+
+
+S.PROGRESS = _progress
+
+
 def set_status(name, stage=None, state=None, msg=None, error=None):
     st = status(name)
+    if stage and stage != st.get('stage'): st['since'] = time.time()
+    if state == 'run' and st.get('state') != 'run': st['since'] = time.time()
+    if msg is not None: BASE[name] = msg; st.pop('pct', None)
     if stage: st['stage'] = stage
     if state: st['state'] = state
     if msg is not None: st['msg'] = msg
@@ -98,8 +118,7 @@ import hashlib
 
 
 def invited():
-    hs = rj(ENGINE / 'invites.json', [])
-    return not hs or (rj(S.HOME / 'invite.json', {}) or {}).get('h') in hs
+    return True   # الأداة مفتوحة للجميع (أُلغيت أكواد الدعوة)
 
 
 def check_invite(code):
@@ -130,11 +149,45 @@ def snapshot(name):
         if (p / f).exists(): shutil.copy(p / f, snap / f)
 
 
+AUTH = {'t': 0, 'ok': False}
+
+
+def claude_logged_in(fresh=False):
+    """هل Claude Code مسجّل دخول؟ (claude auth status) — مع كاش 15 ثانية."""
+    if not fresh and time.time() - AUTH['t'] < 15: return AUTH['ok']
+    exe = find_claude(); ok = False
+    if exe:
+        cmd = ['cmd', '/c', exe, 'auth', 'status'] if exe.lower().endswith(('.cmd', '.bat')) else [exe, 'auth', 'status']
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=20, encoding='utf-8', errors='replace',
+                               creationflags=0x08000000 if os.name == 'nt' else 0)
+            ok = bool(json.loads(r.stdout[r.stdout.find('{'):] or '{}').get('loggedIn'))
+        except Exception:
+            ok = False
+    AUTH.update(t=time.time(), ok=ok)
+    return ok
+
+
+def open_login():
+    """يفتح نافذة تسجيل دخول Claude (المتصفح + نافذة للصق الكود إذا انطلب)."""
+    exe = find_claude()
+    if not exe: raise RuntimeError('Claude Code مو مثبت على جهازك')
+    AUTH['t'] = 0
+    if os.name == 'nt':
+        subprocess.Popen(['cmd', '/c', 'start', 'تسجيل دخول Claude', 'cmd', '/k', exe, 'auth', 'login'])
+    elif sys.platform == 'darwin':
+        subprocess.Popen(['osascript', '-e', f'tell app "Terminal" to do script "{exe} auth login"'])
+    else:
+        subprocess.Popen([exe, 'auth', 'login'])
+
+
 def run_claude(name, task):
     """يشغّل Claude Code بدون واجهة داخل مجلد المشروع ويبث رسائله للسجل."""
     exe = find_claude()
     if not exe:
         raise RuntimeError('ما لقيت Claude Code على جهازك')
+    if not claude_logged_in(fresh=True):
+        raise RuntimeError('Claude مو متصل — اضغط «سجّل دخول Claude» فوق، والشغل يكمل تلقائياً بعد ما تسجّل')
     p = pdir(name)
     snapshot(name)
     cmd = [exe, '-p', 'Follow the task given on stdin. Work only inside the current project folder.',
@@ -167,7 +220,13 @@ def run_claude(name, task):
             final = ev
     proc.wait()
     if (final and final.get('is_error')) or (proc.returncode not in (0, None) and not final):
-        raise RuntimeError('Claude ما كمّل: ' + (str((final or {}).get('result', ''))[:200] or ' '.join(tail)[-200:]))
+        why = str((final or {}).get('result', ''))[:200] or ' '.join(tail)[-200:]
+        if re.search(r'authenticat|OAuth|login|401', why, re.I):
+            AUTH['t'] = 0
+            raise RuntimeError('Claude مو متصل — اضغط «سجّل دخول Claude» فوق، والشغل يكمل تلقائياً بعد ما تسجّل')
+        if re.search(r'usage limit|rate limit|quota', why, re.I):
+            raise RuntimeError('وصلت حد استخدام اشتراك Claude — انتظر شوي ثم اضغط «أعد المحاولة من هنا»')
+        raise RuntimeError('Claude ما كمّل: ' + why)
 
 
 # ───────────────────────── pipeline ─────────────────────────
@@ -184,11 +243,13 @@ def guarded(fn, *a):
 
 def pipeline(name, from_stage='transcribe', skip=()):
     p = pdir(name)
+    TLS.name = name
     try:
         order = [k for k in STAGE_KEYS[STAGE_KEYS.index(from_stage):] if k not in skip]
         if 'transcribe' in order:
             set_status(name, 'transcribe', 'run', 'أفرّغ كلامك…'); log(name, 'بدأت التفريغ — أول مرة ينزّل نموذج اللغة (~3 قيقا)')
-            guarded(S.transcribe, name)
+            fast = rj(p / 'brief.json', {}).get('mode') == 'clips'   # الطويل: نموذج سريع للترشيح بس — كل مقطع ينفرّغ بالدقيق بعدين
+            guarded(S.transcribe, name, *(['small'] if fast else []))
             log(name, f'✅ التفريغ خلص: {len(rj(p / "words.json", {}).get("words", []))} كلمة')
         if rj(p / 'brief.json', {}).get('mode') == 'clips' and 'transcribe' in order:
             # فيديو طويل → Claude يرشّح أفضل المقاطع ويعطيها درجة، والمستخدم يختار
@@ -214,7 +275,8 @@ def pipeline(name, from_stage='transcribe', skip=()):
         if 'plan' in order and rj(p / 'brief.json', {}).get('editor') == 'self':
             b0 = rj(p / 'brief.json', {})
             if not (p / 'timeline.json').exists():
-                wj(p / 'timeline.json', {'title': b0.get('title') or name, 'style': b0.get('style', 'editorial')})
+                st0 = b0.get('style', 'editorial')
+                wj(p / 'timeline.json', {'title': b0.get('title') or name, 'style': 'editorial' if st0 == 'editorial' else 'gold', 'palette': st0})
             log(name, '✂️ وضع «أمنتجه بنفسي»: قصّيت السكتات وركّبت الكابشن — كمّل التعديل من الاستوديو')
             order = [k for k in order if k != 'plan']
         if 'plan' in order:
@@ -330,6 +392,7 @@ def make_clips(name, ids):
 
     def runner():
         for nm in made:
+            TLS.name = nm
             try:
                 build_source(nm)
             except BaseException as e:
@@ -481,7 +544,7 @@ def preview_tl(name):
 def plan_task(name):
     b = rj(pdir(name) / 'brief.json', {})
     return (
-        'خطّط مونتاج هذا المشروع حسب الدليل (AGENT.md).\n'
+        'خطّط مونتاج هذا المشروع حسب الدليل (AGENT.md). حط "palette" بالخطة = قيمة style من إجابات المستخدم، واستخدم الرسومات الجديدة (items) لما يناسب الكلام.\n'
         f'إجابات المستخدم من صفحة الأسئلة: {json.dumps(b, ensure_ascii=False)}\n'
         '١) اقرأ words.json و caps.json.\n'
         '٢) اكتب edit.json (تصحيح الكلمات والكلمات المميزة وحذف الإعادات) ثم شغّل cut بالمحرّك.\n'
@@ -509,9 +572,11 @@ def build_source(name):
     ins = sorted((p / 'inputs').glob('*'))
     if not ins:
         raise Fail('ما رفعت أي مقطع')
-    if rj(p / 'brief.json', {}).get('mode') == 'clips' and len(ins) == 1:
-        # فيديو طويل: لا نحوّله كامل — نفرّغه كما هو، ونحوّل بس المقاطع المختارة (أسرع بكثير)
-        S.ff('-i', ins[0], '-map', '0:v:0', '-map', '0:a:0', '-c', 'copy', '-movflags', '+faststart', p / 'src.mp4')
+    if rj(p / 'brief.json', {}).get('mode') == 'clips':
+        # فيديو طويل: ناخذ أطول ملف ولا نحوّله كامل — نفرّغه كما هو، ونحوّل بس المقاطع المختارة (ثواني بدل ساعات)
+        longest = max(ins, key=lambda f: S.probe_dur(f))
+        if len(ins) > 1: log(name, f'فيديو طويل: استخدمت «{longest.name[3:]}» بس (الأطول)')
+        S.ff('-i', longest, '-map', '0:v:0', '-map', '0:a:0', '-c', 'copy', '-movflags', '+faststart', p / 'src.mp4')
     else:
         S.new(name, [str(f) for f in ins], fit=rj(p / 'brief.json', {}).get('frame') == 'fit')
     S.ff('-ss', '1', '-i', p / 'src.mp4', '-frames:v', '1', '-vf', 'scale=360:-2', p / 'thumb.jpg')
@@ -586,7 +651,7 @@ class H(BaseHTTPRequestHandler):
             if path.startswith('/web/'):
                 return self.send_file(WEB / path[5:])
             if path == '/api/ping':
-                return self.send_json({'ok': True, 'app': 'asrar-studio', 'claude': bool(find_claude()), 'invited': invited()})
+                return self.send_json({'ok': True, 'app': 'asrar-studio', 'claude': bool(find_claude()), 'loggedIn': claude_logged_in(), 'invited': True})
             if path == '/api/projects':
                 PROJ.mkdir(parents=True, exist_ok=True)
                 items = [project_info(d.name) for d in PROJ.iterdir() if d.is_dir() and not d.name.startswith('.')]
@@ -642,6 +707,11 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
         try:
+            if path == '/api/claude/login':
+                try:
+                    open_login(); return self.send_json({'ok': True})
+                except Exception as e:
+                    return self.send_json({'error': str(e)}, 400)
             if path == '/api/invite':
                 ok = check_invite(self.body_json().get('code'))
                 return self.send_json({'ok': ok} if ok else {'error': 'الكود غير صحيح'}, 200 if ok else 403)
@@ -668,12 +738,24 @@ class H(BaseHTTPRequestHandler):
                 b = self.body_json()
                 frm = b.get('from', 'transcribe')
                 if frm == 'transcribe':
-                    set_status(name, 'upload', 'run', 'أجهّز المقاطع…')
-                    try:
-                        build_source(name)
-                    except BaseException as e:
-                        set_status(name, None, 'error', str(e), error=str(e)); return self.send_json({'error': str(e)}, 400)
-                    log(name, '✅ المقاطع جاهزة')
+                    if not list((p / 'inputs').glob('*')): return self.send_json({'error': 'ارفع مقطع أو حط رابط أول'}, 400)
+                    with LOCK:
+                        if name in JOBS: return self.send_json({'error': 'المشروع شغّال الحين'}, 409)
+                        JOBS[name] = True
+                    set_status(name, 'transcribe', 'run', 'أجهّز المقاطع…')
+                    def prep():
+                        TLS.name = name
+                        try:
+                            build_source(name)
+                        except BaseException as e:
+                            msg = str(e) if isinstance(e, Fail) else 'ما قدرت أجهّز المقاطع — تأكد إنها فيديو سليم'
+                            log(name, '❌ ' + msg, 'error'); set_status(name, None, 'error', msg, error=msg)
+                            with LOCK: JOBS.pop(name, None)
+                            return
+                        log(name, '✅ المقاطع جاهزة')
+                        pipeline(name, 'transcribe')
+                    threading.Thread(target=prep, daemon=True).start()
+                    return self.send_json({'ok': True})
                 start_job(name, frm)
                 return self.send_json({'ok': True})
             if act == 'ask':

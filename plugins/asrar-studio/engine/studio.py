@@ -35,8 +35,22 @@ def run(cmd, **kw):
     return r
 
 
-def ff(*args):
-    run(['ffmpeg', '-v', 'error', '-y', *args])
+PROGRESS = None   # السيرفر يحط هنا دالة (المرحلة, النسبة 0-1) عشان يعرض نسبة التقدم
+
+
+def ff(*args, dur=None):
+    if not (PROGRESS and dur):
+        return run(['ffmpeg', '-v', 'error', '-y', *args])
+    p = subprocess.Popen([str(c) for c in ['ffmpeg', '-v', 'error', '-y', '-progress', 'pipe:1', '-nostats', *args]],
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    for line in p.stdout:
+        if line.startswith('out_time_us='):
+            try:
+                PROGRESS('ff', min(1, int(line.split('=')[1]) / 1e6 / dur))
+            except ValueError:
+                pass
+    if p.wait() != 0:
+        die('فشل الأمر: ffmpeg')
 
 
 def probe_dur(p):
@@ -99,7 +113,7 @@ def new(name, clips, fit=False):
         L += f'[v{i}][a{i}]'
     fc += f'{L}concat=n={len(clips)}:v=1:a=1[v][a]'
     ff(*ins, '-filter_complex', fc, '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-crf', '14', '-preset', 'fast',
-       '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '256k', p / 'src.mp4')
+       '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '256k', p / 'src.mp4', dur=sum(probe_dur(c) for c in clips))
     print(f'✅ المشروع جاهز: {p}\n   المدة: {probe_dur(p / "src.mp4"):.1f} ثانية')
 
 
@@ -113,8 +127,11 @@ def transcribe(name, model='large-v3'):
     for dev, ct in (('cuda', 'float16'), ('cpu', 'int8')):
         try:
             m = WhisperModel(model, device=dev, compute_type=ct)
-            segs, _ = m.transcribe(str(wav), language='ar', word_timestamps=True, vad_filter=True)
-            segs = list(segs)
+            gen, info = m.transcribe(str(wav), language='ar', word_timestamps=True, vad_filter=True)
+            segs = []
+            for sg in gen:
+                segs.append(sg)
+                if PROGRESS: PROGRESS('transcribe', min(1, sg.end / max(1, info.duration)))
             break
         except Exception as e:  # GPU missing / out of memory → CPU
             print(f'… {dev} ما نفع ({str(e)[:60]}) — أجرّب المعالج')
